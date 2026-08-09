@@ -146,8 +146,6 @@ export async function POST(request) {
             }
 
             const orderId = generateOrderId();
-            
-            // SIMPAN KE KOLEKSI GLOBAL 'orders' SESUAI ARSITEKTUR KITA
             const orderRef = db.collection("orders").doc();
 
             const newOrder = {
@@ -209,7 +207,7 @@ export async function POST(request) {
         return NextResponse.json({
             order_id: orderData.order_id,
             total_amount: orderData.total_amount,
-            snapToken: snapResponse.token, // kompatibel dengan storefront
+            snapToken: snapResponse.token,
             token: snapResponse.token,
             redirect_url: snapResponse.redirect_url,
         });
