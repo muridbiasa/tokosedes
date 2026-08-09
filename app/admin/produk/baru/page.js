@@ -1,6 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { db } from "@/lib/firebase";
+import { collection, doc, addDoc, setDoc } from "firebase/firestore";
+import { CheckCircle2, Loader2 } from "lucide-react";
 import FormBuilder from "@/components/admin/FormBuilder";
 import LivePreview from "@/components/admin/LivePreview";
 
@@ -18,27 +22,62 @@ const EMPTY_PRODUCT = {
 /**
  * app/admin/produk/baru/page.js
  *
- * Contoh pemakaian: Form Builder & Live Preview berdampingan, berbagi satu
- * sumber state (`product`, `fields`) sehingga preview ter-update saat
- * Admin mengetik. Di layar kecil, ditampilkan sebagai tab "Edit" / "Pratinjau".
+ * Mode Produksi: Menyimpan Produk & Custom Fields ke Firestore.
+ * Dilengkapi dengan notifikasi pop-up dan auto-redirect.
  */
 export default function NewProductPage() {
+  const router = useRouter();
   const [product, setProduct] = useState(EMPTY_PRODUCT);
   const [fields, setFields] = useState([]);
   const [mobileTab, setMobileTab] = useState("edit");
+  
+  // State untuk Pop-up UI
+  const [isSaving, setIsSaving] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false);
 
   const handleSave = async (finalProduct, finalFields) => {
-    // TODO: panggil endpoint/Cloud Function untuk menulis ke Firestore:
-    //   - stores/{storeId}/products/{productId}  <- finalProduct
-    //   - stores/{storeId}.custom_form_fields     <- finalFields
-    // Admin (owner/staff toko) sudah punya izin tulis langsung ke `products`
-    // sesuai Security Rules Modul 1, jadi ini bisa client-side write biasa
-    // (berbeda dari `orders` yang wajib lewat Cloud Function).
-    console.log("Simpan produk:", finalProduct, finalFields);
+    setIsSaving(true);
+    
+    try {
+      // 1. Validasi Keamanan Data (memastikan harga & stok berwujud angka murni)
+      const sanitizedProduct = {
+        ...finalProduct,
+        base_price: Number(finalProduct.base_price) || 0,
+        base_stock: Number(finalProduct.base_stock) || 0,
+        created_at: new Date().toISOString()
+      };
+
+      // 2. Referensi ke dokumen toko kita (tokosedes-prod)
+      const storeRef = doc(db, "stores", "tokosedes-prod");
+
+      // 3. Simpan Produk ke sub-koleksi 'products'
+      const productsRef = collection(storeRef, "products");
+      await addDoc(productsRef, sanitizedProduct);
+
+      // 4. Simpan struktur Custom Fields ke dokumen toko utama (jika ada)
+      if (finalFields && finalFields.length > 0) {
+        await setDoc(storeRef, { custom_form_fields: finalFields }, { merge: true });
+      }
+
+      // 5. Munculkan Pop-up Sukses
+      setIsSaving(false);
+      setShowSuccess(true);
+      
+      // 6. Alihkan kembali ke Dashboard Admin setelah 1.5 detik
+      setTimeout(() => {
+        setShowSuccess(false);
+        router.push("/admin/dashboard");
+      }, 1500);
+
+    } catch (error) {
+      console.error("Gagal menyimpan produk:", error);
+      alert("Terjadi kesalahan saat menyimpan produk: " + error.message);
+      setIsSaving(false);
+    }
   };
 
   return (
-    <div className="min-h-screen bg-[var(--canvas)]">
+    <div className="min-h-screen bg-[var(--canvas)] relative">
       <div className="flex gap-2 border-b border-[var(--line)] bg-white px-4 py-2 lg:hidden">
         <button
           onClick={() => setMobileTab("edit")}
@@ -77,6 +116,26 @@ export default function NewProductPage() {
           <LivePreview product={product} fields={fields} />
         </div>
       </div>
+
+      {/* --- Pop-up Loading & Sukses (Overlay) --- */}
+      {(isSaving || showSuccess) && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+          <div className="flex flex-col items-center justify-center gap-3 rounded-2xl bg-white p-8 shadow-xl">
+            {isSaving ? (
+              <>
+                <Loader2 size={40} className="animate-spin text-[var(--ink)]" />
+                <p className="text-sm font-medium text-[var(--ink)]">Menyimpan produk...</p>
+              </>
+            ) : (
+              <>
+                <CheckCircle2 size={40} className="text-[var(--pine)]" />
+                <p className="text-sm font-medium text-[var(--ink)]">Produk berhasil disimpan!</p>
+                <p className="text-xs text-[var(--muted)]">Mengalihkan ke dashboard...</p>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

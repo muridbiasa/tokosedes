@@ -1,6 +1,8 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
+import { db } from '@/lib/firebase';
+import { collection, getDocs } from 'firebase/firestore';
 import {
   Minus,
   Plus,
@@ -12,14 +14,13 @@ import {
   ChevronDown,
 } from "lucide-react";
 import DriveImage from "@/components/shared/DriveImage";
-import { mockStore, mockCustomFields, mockProducts } from "@/lib/mockData";
+import { mockStore, mockCustomFields } from "@/lib/mockData"; // mockProducts sudah dihapus
 
 /**
  * app/page.js
  *
- * Storefront Pembeli — F-02, F-03, F-04, F-05 PRD.
- * Sumber data masih mockData (lihat README Modul 2). Titik-titik yang nanti
- * diganti ke Firebase/Cloud Function ditandai dengan komentar TODO.
+ * Storefront Pembeli — UI by Claude, Backend Logic by Production System.
+ * Sistem kini menarik data dari Firestore dan memicu Midtrans Snap asli.
  */
 
 function formatRupiah(value) {
@@ -32,6 +33,10 @@ function cartKey(productId, sku) {
 }
 
 export default function StorefrontPage() {
+  // STATE BARU: Menampung data produk dari Firebase
+  const [products, setProducts] = useState([]);
+  const [loadingProducts, setLoadingProducts] = useState(true);
+
   // { [cartKey]: { product_id, sku, name, price, qty, maxStock } }
   const [cart, setCart] = useState({});
   // varian yang sedang dipilih per produk di kartu (belum tentu masuk keranjang)
@@ -46,6 +51,37 @@ export default function StorefrontPage() {
   const cartItems = useMemo(() => Object.values(cart), [cart]);
   const totalQty = cartItems.reduce((sum, i) => sum + i.qty, 0);
   const totalAmount = cartItems.reduce((sum, i) => sum + i.qty * i.price, 0);
+
+  // MENGAMBIL DATA KATALOG DARI FIRESTORE
+  useEffect(() => {
+    async function fetchProducts() {
+      try {
+        const querySnapshot = await getDocs(collection(db, 'stores', 'tokosedes-prod', 'products'));
+        const items = [];
+        querySnapshot.forEach((doc) => {
+          const data = doc.data();
+          // Memetakan struktur Firebase agar cocok dengan UI buatan Claude
+          items.push({ 
+            product_id: doc.id,
+            name: data.name || "Tanpa Nama",
+            description: data.description || "",
+            base_price: data.price || 0,
+            base_stock: data.stock || 0,
+            has_variants: data.has_variants || false,
+            variants: data.variants || [],
+            images: data.imageUrl ? [data.imageUrl] : (data.images || []),
+            ...data
+          });
+        });
+        setProducts(items);
+      } catch (err) {
+        console.error("Gagal mengambil data produk Firestore:", err);
+      } finally {
+        setLoadingProducts(false);
+      }
+    }
+    fetchProducts();
+  }, []);
 
   function getSelectedVariant(product) {
     if (!product.has_variants) return null;
@@ -123,24 +159,60 @@ export default function StorefrontPage() {
     setCheckoutState("confirming");
   }
 
-  function confirmPayment() {
+  // EKSEKUSI PEMBAYARAN MIDTRANS ASLI
+  async function confirmPayment() {
     setCheckoutState("processing");
 
-    // --- SIMULASI ALUR MIDTRANS SNAP ---
-    // Urutan asli (produksi) mengikuti PRD §5.1 & Modul 1 §4:
-    //   1. Cloud Function `createOrder` dipanggil (bukan client langsung).
-    //   2. Server melakukan runTransaction: cek ulang stok tiap item
-    //      TEPAT SEBELUM memanggil Midtrans Snap (mencegah race condition
-    //      dua pembeli checkout bersamaan pada stok terakhir).
-    //   3. Jika stok sudah habis duluan -> tampilkan:
-    //        "Maaf, stok [Nama Produk] baru saja habis" dan batalkan.
-    //   4. Jika aman -> server memanggil Midtrans Snap API, mengembalikan
-    //      snap_token ke client, lalu client memanggil window.snap.pay(token).
-    //   5. Status PAID/EXPIRED/CANCELLED hanya diubah lewat Webhook Midtrans
-    //      di server -- TIDAK PERNAH dari redirect/callback di client.
-    setTimeout(() => {
-      setCheckoutState("success");
-    }, 1200);
+    try {
+      const res = await fetch('/api/order/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          storeId: 'tokosedes-prod',
+          customerName,
+          customerPhone,
+          items: cartItems.map(item => ({
+            id: item.product_id,
+            name: item.name,
+            price: item.price,
+            quantity: item.qty
+          })),
+          notes: JSON.stringify(customFieldValues) || ''
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Gagal membuat pesanan');
+
+      // Panggil Pop-up Pembayaran Midtrans Snap
+      if (window.snap && data.snapToken) {
+        window.snap.pay(data.snapToken, {
+          onSuccess: function () {
+            alert('Pembayaran Berhasil! Data otomatis tercatat ke Sheets.');
+            resetAfterSuccess();
+            window.location.reload();
+          },
+          onPending: function () {
+            alert('Menunggu Pembayaran! Silakan selesaikan tagihan Anda.');
+            setCheckoutState("idle");
+          },
+          onError: function () {
+            alert('Pembayaran Gagal! Silakan coba lagi.');
+            setCheckoutState("idle");
+          },
+          onClose: function () {
+            alert('Jendela pembayaran ditutup sebelum selesai.');
+            setCheckoutState("idle");
+          }
+        });
+      } else {
+        alert('Gagal memuat Midtrans Snap. Pastikan script SDK terpasang di layout.');
+        setCheckoutState("idle");
+      }
+    } catch (err) {
+      alert(err.message);
+      setCheckoutState("idle");
+    }
   }
 
   function resetAfterSuccess() {
@@ -181,19 +253,30 @@ export default function StorefrontPage() {
           Katalog Produk
         </h2>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          {mockProducts.map((product) => (
-            <ProductCard
-              key={product.product_id}
-              product={product}
-              selectedIndex={selectedVariant[product.product_id] ?? 0}
-              onSelectVariant={(index) =>
-                setSelectedVariant((prev) => ({ ...prev, [product.product_id]: index }))
-              }
-              onAddToCart={() => addToCart(product)}
-            />
-          ))}
-        </div>
+        {/* LOADING INDICATOR / RENDER PRODUK */}
+        {loadingProducts ? (
+          <div className="flex justify-center py-8">
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-[var(--line)] border-t-[var(--ink)]" />
+          </div>
+        ) : products.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-[var(--line)] p-8 text-center text-sm text-[var(--muted)]">
+            Belum ada produk di database Firestore.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            {products.map((product) => (
+              <ProductCard
+                key={product.product_id}
+                product={product}
+                selectedIndex={selectedVariant[product.product_id] ?? 0}
+                onSelectVariant={(index) =>
+                  setSelectedVariant((prev) => ({ ...prev, [product.product_id]: index }))
+                }
+                onAddToCart={() => addToCart(product)}
+              />
+            ))}
+          </div>
+        )}
 
         {/* --- Data Pembeli & Field Kustom --- */}
         <section className="mt-8 space-y-4 rounded-lg border border-[var(--line)] bg-[var(--paper)] p-4">
@@ -327,7 +410,7 @@ export default function StorefrontPage() {
         </div>
       )}
 
-      {/* --- Modal Konfirmasi / Simulasi Midtrans Snap --- */}
+      {/* --- Modal Konfirmasi / Trigger Midtrans Snap --- */}
       {checkoutState !== "idle" && (
         <CheckoutModal
           state={checkoutState}
@@ -551,9 +634,7 @@ function CheckoutModal({ state, cartItems, totalAmount, customerName, onClose, o
 
             <p className="mb-4 flex items-start gap-1.5 text-[11px] text-[var(--muted)]">
               <AlertTriangle size={13} className="mt-0.5 shrink-0" />
-              Pop-up pembayaran Midtrans Snap (QRIS / E-Wallet / Transfer Bank) akan
-              terbuka setelah ini. Stok akan dicek ulang secara real-time sesaat sebelum
-              pop-up muncul.
+              Sistem akan memotong stok secara real-time dan langsung membuka halaman pembayaran resmi Midtrans setelah Anda menekan tombol di bawah ini.
             </p>
 
             <button
@@ -579,19 +660,17 @@ function CheckoutModal({ state, cartItems, totalAmount, customerName, onClose, o
               <Check size={24} />
             </div>
             <h3 className="font-display text-base font-semibold text-[var(--ink)]">
-              Simulasi Snap Berhasil Dipicu
+              Transaksi Selesai
             </h3>
             <p className="text-xs text-[var(--muted)]">
-              Di produksi, pop-up Midtrans Snap muncul di titik ini (<code>window.snap.pay(token)</code>).
-              Status pesanan tetap <span className="font-mono">PENDING</span> sampai Webhook
-              Midtrans mengonfirmasi pembayaran.
+              Terima kasih! Jika jendela tidak tertutup otomatis, silakan klik tombol selesai.
             </p>
             <button
               type="button"
               onClick={onDone}
               className="mt-2 w-full rounded-md bg-[var(--ink)] py-2.5 text-sm font-semibold text-white"
             >
-              Selesai
+              Kembali ke Beranda
             </button>
           </div>
         )}

@@ -1,7 +1,9 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
+import { db } from "@/lib/firebase";
+import { collection, query, orderBy, onSnapshot, where } from "firebase/firestore";
 import {
   Plus,
   Wallet,
@@ -11,14 +13,11 @@ import {
   CloudUpload,
   CloudOff,
 } from "lucide-react";
-import { mockStore, mockOrders, mockAnalyticsSummary } from "@/lib/mockData";
 
 /**
  * app/admin/dashboard/page.js
  *
- * Dashboard Admin — F-06 & F-07 PRD.
- * Sumber data masih mockData; titik-titik yang nanti diganti ke Firestore
- * query (mis. onSnapshot ke stores/{storeId}/orders) ditandai TODO.
+ * Dashboard Admin — Mode Produksi (Terhubung ke Firestore Real-time)
  */
 
 const STATUS_TABS = ["Semua", "PAID", "PENDING", "EXPIRED"];
@@ -35,8 +34,11 @@ function formatRupiah(value) {
   return `Rp${Number(value || 0).toLocaleString("id-ID")}`;
 }
 
-function formatDateTime(isoString) {
-  return new Date(isoString).toLocaleString("id-ID", {
+// Menangani format waktu dari Firestore Timestamp atau String biasa
+function formatDateTime(val) {
+  if (!val) return "-";
+  const date = val.toDate ? val.toDate() : new Date(val);
+  return date.toLocaleString("id-ID", {
     day: "2-digit",
     month: "short",
     hour: "2-digit",
@@ -45,33 +47,98 @@ function formatDateTime(isoString) {
 }
 
 function itemsSummary(items) {
-  return items.map((it) => `${it.name} (x${it.qty})`).join(", ");
+  if (!items || !Array.isArray(items)) return "-";
+  return items.map((it) => `${it.name} (x${it.quantity || it.qty || 1})`).join(", ");
 }
 
 export default function AdminDashboardPage() {
   const [activeTab, setActiveTab] = useState("Semua");
   const [search, setSearch] = useState("");
 
+  // State Baru untuk Produksi
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const storeInfo = { store_name: "Toko Sedes", store_slug: "tokosedes-prod" };
+
+  // Menarik Data Pesanan Real-time dari Firestore
+  useEffect(() => {
+    // Asumsi collection pesanan bernama 'orders' dan kita filter berdasarkan storeId
+    const q = query(
+      collection(db, "orders"),
+      where("storeId", "==", "tokosedes-prod")
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const fetchedOrders = [];
+      snapshot.forEach((doc) => {
+        fetchedOrders.push({ order_id: doc.id, ...doc.data() });
+      });
+
+      // Urutkan manual (karena Firestore butuh index composite jika menggabungkan where dan orderBy)
+      fetchedOrders.sort((a, b) => {
+        const dateA = a.created_at?.toDate ? a.created_at.toDate() : new Date(a.created_at || 0);
+        const dateB = b.created_at?.toDate ? b.created_at.toDate() : new Date(b.created_at || 0);
+        return dateB - dateA; // Descending (terbaru di atas)
+      });
+
+      setOrders(fetchedOrders);
+      setLoading(false);
+    }, (error) => {
+      console.error("Gagal mengambil data pesanan:", error);
+      setLoading(false);
+    });
+
+    return () => unsubscribe(); // Bersihkan listener saat pindah halaman
+  }, []);
+
+  // Menghitung Statistik Omset & Produk Terlaris secara Otomatis
+  const analyticsSummary = useMemo(() => {
+    let totalRevenue = 0;
+    let totalTransactions = 0;
+    const salesMap = {};
+
+    orders.forEach(order => {
+      if (order.payment_status === "PAID") {
+        totalRevenue += (order.total_amount || 0);
+        totalTransactions += 1;
+
+        (order.items || []).forEach(item => {
+          const qty = item.quantity || item.qty || 1;
+          salesMap[item.name] = (salesMap[item.name] || 0) + qty;
+        });
+      }
+    });
+
+    const productSales = Object.entries(salesMap)
+      .map(([name, qty]) => ({ name, qty }))
+      .sort((a, b) => b.qty - a.qty)
+      .slice(0, 3); // Ambil 3 terlaris
+
+    return { total_revenue: totalRevenue, total_transactions: totalTransactions, product_sales: productSales };
+  }, [orders]);
+
+  // Filter Search & Tab Status
   const filteredOrders = useMemo(() => {
-    return mockOrders
+    return orders
       .filter((o) => (activeTab === "Semua" ? true : o.payment_status === activeTab))
       .filter((o) => {
         const q = search.trim().toLowerCase();
         if (!q) return true;
         return (
-          o.customer_name.toLowerCase().includes(q) || o.order_id.toLowerCase().includes(q)
+          (o.customer_name || "").toLowerCase().includes(q) ||
+          (o.order_id || "").toLowerCase().includes(q)
         );
-      })
-      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-  }, [activeTab, search]);
+      });
+  }, [activeTab, search, orders]);
 
+  // Hitung jumlah tiap tab
   const tabCounts = useMemo(() => {
-    const counts = { Semua: mockOrders.length };
+    const counts = { Semua: orders.length };
     for (const status of ["PAID", "PENDING", "EXPIRED"]) {
-      counts[status] = mockOrders.filter((o) => o.payment_status === status).length;
+      counts[status] = orders.filter((o) => o.payment_status === status).length;
     }
     return counts;
-  }, []);
+  }, [orders]);
 
   return (
     <div className="min-h-screen bg-[var(--canvas)]">
@@ -83,7 +150,7 @@ export default function AdminDashboardPage() {
               Dashboard Admin
             </h1>
             <p className="text-xs text-[var(--muted)]">
-              {mockStore.store_name} — {mockStore.store_slug}
+              {storeInfo.store_name} — {storeInfo.store_slug}
             </p>
           </div>
           <Link
@@ -101,23 +168,23 @@ export default function AdminDashboardPage() {
           <MetricCard
             icon={<Wallet size={18} />}
             label="Total Omset"
-            value={formatRupiah(mockAnalyticsSummary.total_revenue)}
+            value={formatRupiah(analyticsSummary.total_revenue)}
             hint="Dari pesanan berstatus PAID"
           />
           <MetricCard
             icon={<CheckCircle2 size={18} />}
             label="Transaksi Berhasil"
-            value={mockAnalyticsSummary.total_transactions}
+            value={analyticsSummary.total_transactions}
             hint="Total pesanan PAID"
           />
-          <TopProductsCard products={mockAnalyticsSummary.product_sales} />
+          <TopProductsCard products={analyticsSummary.product_sales} />
         </section>
 
         {/* --- Tabel Riwayat Pesanan --- */}
         <section className="space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="font-display text-sm font-semibold uppercase tracking-wide text-[var(--muted)]">
-              Riwayat Pesanan
+              Riwayat Pesanan {loading && <span className="text-xs text-blue-500 lowercase">(Memuat...)</span>}
             </h2>
 
             <div className="relative">
@@ -141,11 +208,10 @@ export default function AdminDashboardPage() {
                 key={tab}
                 type="button"
                 onClick={() => setActiveTab(tab)}
-                className={`whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
-                  activeTab === tab
+                className={`whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${activeTab === tab
                     ? "border-[var(--ink)] bg-[var(--ink)] text-white"
                     : "border-[var(--line)] bg-[var(--paper)] text-[var(--muted)]"
-                }`}
+                  }`}
               >
                 {tab} {tabCounts[tab] !== undefined && `(${tabCounts[tab]})`}
               </button>
@@ -193,10 +259,9 @@ export default function AdminDashboardPage() {
                     </td>
                     <td className="px-4 py-3">
                       <span
-                        className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${
-                          STATUS_STYLE[order.payment_status] ||
+                        className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${STATUS_STYLE[order.payment_status] ||
                           "bg-[var(--muted)]/10 text-[var(--muted)]"
-                        }`}
+                          }`}
                       >
                         {order.payment_status}
                       </span>
@@ -215,10 +280,10 @@ export default function AdminDashboardPage() {
                   </tr>
                 ))}
 
-                {filteredOrders.length === 0 && (
+                {!loading && filteredOrders.length === 0 && (
                   <tr>
                     <td colSpan={8} className="px-4 py-10 text-center text-sm text-[var(--muted)]">
-                      Tidak ada pesanan yang cocok.
+                      Tidak ada pesanan yang cocok di database.
                     </td>
                   </tr>
                 )}
@@ -245,7 +310,7 @@ function MetricCard({ icon, label, value, hint }) {
 }
 
 function TopProductsCard({ products }) {
-  const maxQty = Math.max(...products.map((p) => p.qty), 1);
+  const maxQty = Math.max(...(products || []).map((p) => p.qty), 1);
 
   return (
     <div className="rounded-lg border border-[var(--line)] bg-[var(--paper)] p-4">
@@ -253,22 +318,27 @@ function TopProductsCard({ products }) {
         <TrendingUp size={18} />
         <span className="text-xs font-medium uppercase tracking-wide">Produk Terlaris</span>
       </div>
-      <ul className="mt-3 space-y-2">
-        {products.map((p) => (
-          <li key={p.name}>
-            <div className="mb-1 flex items-center justify-between text-xs">
-              <span className="truncate pr-2 text-[var(--ink)]">{p.name}</span>
-              <span className="shrink-0 font-mono text-[var(--muted)]">{p.qty} terjual</span>
-            </div>
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--canvas)]">
-              <div
-                className="h-full rounded-full bg-[var(--marigold)]"
-                style={{ width: `${(p.qty / maxQty) * 100}%` }}
-              />
-            </div>
-          </li>
-        ))}
-      </ul>
+
+      {(!products || products.length === 0) ? (
+        <p className="mt-4 text-xs text-[var(--muted)]">Belum ada data penjualan.</p>
+      ) : (
+        <ul className="mt-3 space-y-2">
+          {products.map((p) => (
+            <li key={p.name}>
+              <div className="mb-1 flex items-center justify-between text-xs">
+                <span className="truncate pr-2 text-[var(--ink)]">{p.name}</span>
+                <span className="shrink-0 font-mono text-[var(--muted)]">{p.qty} terjual</span>
+              </div>
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--canvas)]">
+                <div
+                  className="h-full rounded-full bg-[var(--marigold)] transition-all duration-500"
+                  style={{ width: `${(p.qty / maxQty) * 100}%` }}
+                />
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
