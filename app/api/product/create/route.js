@@ -1,15 +1,12 @@
 import { NextResponse } from 'next/server';
-// Sesuaikan path import ini dengan letak file konfigurasi Firebase kamu!
-// Contoh: import { db } from '@/lib/firebase' atau '@/config/firebase'
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
-import { db } from '@/lib/firebase'; 
+// Sesuaikan import ini dengan file inisialisasi Firebase Admin kamu
+// Contoh: import { adminDb } from '@/lib/firebaseAdmin';
+import { adminDb } from '@/lib/firebaseAdmin'; 
 
 export async function POST(request) {
   try {
-    // 1. Ambil data (payload) yang dikirim dari form admin
     const data = await request.json();
 
-    // 2. Validasi sederhana (pastikan nama dan harga tidak kosong)
     if (!data.name || !data.price) {
       return NextResponse.json(
         { success: false, message: 'Nama produk dan harga wajib diisi!' },
@@ -17,21 +14,30 @@ export async function POST(request) {
       );
     }
 
-    // 3. Proses simpan ke koleksi 'products' di Firestore
-    const docRef = await addDoc(collection(db, 'products'), {
-      name: data.name,
-      price: Number(data.price),
-      stock: Number(data.stock) || 0,
-      description: data.description || '',
-      imageUrl: data.imageUrl || '', // URL gambar jika kamu pakai Firebase Storage/hosting lain
-      createdAt: serverTimestamp(),
-    });
+    // Tentukan ID Toko sesuai dengan struktur di database kamu.
+    // Jika hanya ada satu toko, kamu bisa menuliskannya secara manual di sini (hardcode)
+    // Misalnya 'tokosedes' atau ID spesifik lainnya.
+    const storeId = 'tokosedes'; 
 
-    // 4. Kembalikan respon sukses beserta ID dokumen yang baru dibuat
+    // Simpan ke sub-koleksi: stores -> [storeId] -> products
+    const docRef = await adminDb
+      .collection('stores')
+      .doc(storeId)
+      .collection('products')
+      .add({
+        name: data.name,
+        price: Number(data.price),
+        stock: Number(data.stock) || 0,
+        description: data.description || '',
+        imageUrl: data.imageUrl || '',
+        // Menggunakan waktu dari server Admin SDK
+        createdAt: new Date(), 
+      });
+
     return NextResponse.json(
       { 
         success: true, 
-        message: 'Produk berhasil ditambahkan ke Firebase!', 
+        message: 'Produk berhasil ditambahkan melalui Admin SDK!', 
         productId: docRef.id 
       },
       { status: 201 }
@@ -40,7 +46,6 @@ export async function POST(request) {
   } catch (error) {
     console.error('Error saat menambahkan produk:', error);
     
-    // Kembalikan respon error jika gagal
     return NextResponse.json(
       { 
         success: false, 
