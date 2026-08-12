@@ -3,20 +3,14 @@
  *
  * POST /api/webhooks/midtrans
  *
- * Menerima notifikasi (webhook) dari Midtrans Production setiap ada
- * perubahan status transaksi. INI SATU-SATUNYA TEMPAT yang boleh mengubah
- * payment_status jadi PAID — PRD Don'ts: "JANGAN memperbarui status
- * pembayaran... hanya berdasarkan redirect URL di sisi client. Wajib
- * menunggu Callback Webhook sah dari Midtrans."
+ * Menerima notifikasi (webhook) dari Midtrans Production.
+ * SATU-SATUNYA TEMPAT yang boleh mengubah payment_status menjadi PAID.
  *
- * Alur:
- *   1. Verifikasi signature_key (SHA512) — tolak kalau tidak cocok.
- *   2. Cari dokumen order berdasarkan order_id (query collectionGroup,
- *      karena kita tidak tahu store_id dari payload webhook Midtrans).
- *   3. Mapping transaction_status -> payment_status internal.
- *   4. Kalau PAID: tulis status + panggil appendOrderToSheets().
- *   5. Selalu balas 200 { status: "OK" } ke Midtrans, KECUALI signature
- *      tidak valid (lihat catatan di bawah soal kenapa).
+ * PERBAIKAN:
+ * - Query langsung ke root collection "orders" (bukan collectionGroup)
+ * - Signature verification tetap dipertahankan
+ * - Rollback stok jika EXPIRED/CANCELLED
+ * - Sync ke Google Sheets jika PAID
  */
 
 import crypto from "crypto";
@@ -48,15 +42,12 @@ function mapPaymentStatus(transactionStatus, fraudStatus) {
 }
 
 /**
- * Cari dokumen order di seluruh toko berdasarkan order_id.
- * Payload webhook Midtrans hanya berisi order_id (bukan store_id), jadi
- * kita pakai collectionGroup query lintas semua stores/*\/orders.
- * SYARAT: field `order_id` pada tiap dokumen order harus ter-index
- * (Firestore otomatis meng-index field level-1 kecuali dinonaktifkan).
+ * Cari dokumen order berdasarkan order_id di ROOT COLLECTION "orders".
+ * (Perbaikan: sebelumnya menggunakan collectionGroup yang salah)
  */
 async function findOrderByOrderId(orderId) {
   const snapshot = await db
-    .collectionGroup("orders")
+    .collection("orders")
     .where("order_id", "==", orderId)
     .limit(1)
     .get();
@@ -65,13 +56,47 @@ async function findOrderByOrderId(orderId) {
   return snapshot.docs[0];
 }
 
+/**
+ * Kembalikan stok item-item sebuah order yang EXPIRED/CANCELLED.
+ */
+async function releaseStock(orderData) {
+  const storeRef = db.collection("stores").doc(orderData.store_id);
+
+  await db.runTransaction(async (transaction) => {
+    for (const item of orderData.items) {
+      const productRef = storeRef.collection("products").doc(item.product_id);
+      const productSnap = await transaction.get(productRef);
+      if (!productSnap.exists) continue;
+
+      const product = productSnap.data();
+
+      if (product.has_variants && Array.isArray(product.variants)) {
+        const variantIndex = product.variants.findIndex((v) => v.sku === item.sku);
+        if (variantIndex === -1) continue;
+
+        const nextVariants = [...product.variants];
+        nextVariants[variantIndex] = {
+          ...nextVariants[variantIndex],
+          stock: nextVariants[variantIndex].stock + item.qty,
+        };
+        transaction.update(productRef, { variants: nextVariants });
+      } else {
+        const currentStock = product.base_stock ?? product.stock ?? 0;
+        const newStock = currentStock + item.qty;
+        transaction.update(productRef, {
+          base_stock: newStock,
+          stock: product.stock !== undefined ? newStock : undefined,
+        });
+      }
+    }
+  });
+}
+
 export async function POST(request) {
   let payload;
   try {
     payload = await request.json();
   } catch {
-    // Body bukan JSON valid -- tetap balas 200 supaya Midtrans tidak
-    // retry notifikasi yang memang cacat, tapi log untuk investigasi.
     console.error("[webhooks/midtrans] Body notifikasi bukan JSON valid");
     return NextResponse.json({ status: "OK" });
   }
@@ -94,7 +119,7 @@ export async function POST(request) {
     return NextResponse.json({ status: "OK" });
   }
 
-  // --- 1. Verifikasi signature — WAJIB, lihat PRD Do's "Webhook Verification" ---
+  // --- 1. Verifikasi signature ---
   const isValidSignature = verifySignature({
     order_id,
     status_code,
@@ -106,21 +131,15 @@ export async function POST(request) {
     console.error(
       `[webhooks/midtrans] SIGNATURE TIDAK VALID untuk order_id=${order_id}. Notifikasi diabaikan.`
     );
-    // Sengaja balas 401 (bukan 200) untuk signature invalid: ini kemungkinan
-    // notifikasi palsu/dipalsukan, bukan sekadar payload aneh dari Midtrans
-    // asli — tidak ada alasan menenangkan pengirimnya dengan 200 OK.
     return NextResponse.json({ status: "invalid signature" }, { status: 401 });
   }
 
-  // --- 2. Cari dokumen order terkait ---
+  // --- 2. Cari dokumen order di ROOT COLLECTION ---
   const orderDoc = await findOrderByOrderId(order_id);
 
   if (!orderDoc) {
     console.error(`[webhooks/midtrans] order_id=${order_id} tidak ditemukan di Firestore.`);
-    // Balas 200 tetap -- order_id valid dari sisi Midtrans (signature cocok),
-    // kemungkinan race condition dokumen belum ter-index atau data lama.
-    // Membalas non-200 di sini akan membuat Midtrans retry tanpa henti
-    // untuk kasus yang tidak akan pernah berhasil.
+    // Balas 200 supaya Midtrans tidak retry terus
     return NextResponse.json({ status: "OK" });
   }
 
@@ -150,17 +169,16 @@ export async function POST(request) {
   }
 
   if (newPaymentStatus === "EXPIRED" || newPaymentStatus === "CANCELLED") {
-    // PRD §5.2 poin 3: lepas kembali stok ke etalase.
     updatePayload.stock_status = "RELEASED";
     await releaseStock(orderData);
   }
 
   await orderRef.update(updatePayload);
 
-  // --- 4. Sync ke Google Sheets (hanya untuk transaksi sukses, F-06) ---
+  // --- 4. Sync ke Google Sheets (hanya untuk transaksi sukses) ---
   if (newPaymentStatus === "PAID") {
     try {
-      const storeSnap = await orderRef.parent.parent.get(); // stores/{storeId}
+      const storeSnap = await db.collection("stores").doc(orderData.store_id).get();
       const storeName = storeSnap.exists ? storeSnap.data().store_name : "";
 
       await appendOrderToSheets({
@@ -182,11 +200,6 @@ export async function POST(request) {
         updated_at: FieldValue.serverTimestamp(),
       });
     } catch (sheetsError) {
-      // PRD §5.4: Firestore tetap Single Source of Truth. Kegagalan Sheets
-      // TIDAK membatalkan pemrosesan webhook -- status PAID sudah tersimpan
-      // di atas. Kita hanya menandai perlu di-retry oleh background job
-      // terpisah (mis. scheduled function `retrySheetsSync`, di luar
-      // cakupan berkas ini).
       console.error(
         `[webhooks/midtrans] Gagal sync ke Sheets untuk order_id=${order_id}:`,
         sheetsError
@@ -199,39 +212,6 @@ export async function POST(request) {
     }
   }
 
-  // --- 5. Selalu balas OK ke Midtrans (mencegah retry notifikasi berulang) ---
+  // --- 5. Balas OK ke Midtrans ---
   return NextResponse.json({ status: "OK" });
-}
-
-/** Kembalikan stok item-item sebuah order yang EXPIRED/CANCELLED. */
-async function releaseStock(orderData) {
-  const storeRef = db.collection("stores").doc(orderData.store_id);
-
-  await db.runTransaction(async (transaction) => {
-    for (const item of orderData.items) {
-      const productRef = storeRef.collection("products").doc(item.product_id);
-      const productSnap = await transaction.get(productRef);
-      if (!productSnap.exists) continue;
-
-      const product = productSnap.data();
-
-      if (product.has_variants) {
-        const variantIndex = (product.variants || []).findIndex(
-          (v) => v.sku === item.sku
-        );
-        if (variantIndex === -1) continue;
-
-        const nextVariants = [...product.variants];
-        nextVariants[variantIndex] = {
-          ...nextVariants[variantIndex],
-          stock: nextVariants[variantIndex].stock + item.qty,
-        };
-        transaction.update(productRef, { variants: nextVariants });
-      } else {
-        transaction.update(productRef, {
-          base_stock: product.base_stock + item.qty,
-        });
-      }
-    }
-  });
 }
