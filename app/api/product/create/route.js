@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 // Sesuaikan import ini dengan file inisialisasi Firebase Admin kamu
 // Contoh: import { adminDb } from '@/lib/firebaseAdmin';
-import { adminDb } from '@/lib/firebaseAdmin'; 
+import { adminDb } from '@/lib/firebase-admin'; 
 
 export async function POST(request) {
   try {
