@@ -8,28 +8,36 @@ const nextConfig = {
           {
             key: 'Content-Security-Policy',
             value: `
+              default-src 'self';
+              
               script-src 'self' 'unsafe-inline' 'unsafe-eval' 
-              https://app.midtrans.com 
-              https://snap-assets.midtrans.com 
-              https://api.midtrans.com 
-              https://pay.google.com 
-              https://gwk.gopayapi.com 
-              https://www.googletagmanager.com 
-              https://o.alicdn.com 
-              https://g.alicdn.com;
+                https://app.midtrans.com 
+                https://snap-assets.midtrans.com 
+                https://api.midtrans.com 
+                https://pay.google.com 
+                https://gwk.gopayapi.com 
+                https://www.googletagmanager.com 
+                https://www.google-analytics.com 
+                https://o.alicdn.com 
+                https://g.alicdn.com;
               
               connect-src 'self' 
-              https://app.midtrans.com 
-              https://api.midtrans.com 
-              https://snap-assets.midtrans.com;
+                https://*.googleapis.com 
+                https://*.firebaseio.com 
+                https://firestore.googleapis.com 
+                https://identitytoolkit.googleapis.com 
+                wss://*.googleapis.com 
+                https://app.midtrans.com 
+                https://api.midtrans.com 
+                https://snap-assets.midtrans.com;
               
-              style-src 'self' 'unsafe-inline';
+              style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
               img-src 'self' data: https: blob:;
-              font-src 'self' data:;
+              font-src 'self' data: https://fonts.gstatic.com;
               frame-src 'self' https://app.midtrans.com https://pay.google.com;
               base-uri 'self';
               object-src 'none';
-            `.replace(/\s+/g, ' ').trim(),
+            `.replace(/\s{2,}/g, ' ').trim(),
           },
           {
             key: 'X-Content-Type-Options',
@@ -41,7 +49,7 @@ const nextConfig = {
           },
           {
             key: 'Referrer-Policy',
-            value: 'no-referrer',
+            value: 'strict-origin-when-cross-origin',
           },
         ],
       },
