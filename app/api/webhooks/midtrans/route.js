@@ -38,12 +38,12 @@ function mapPaymentStatus(transactionStatus, fraudStatus) {
   if (transactionStatus === "pending") return "PENDING";
   if (transactionStatus === "expire") return "EXPIRED";
   if (transactionStatus === "cancel" || transactionStatus === "deny") return "CANCELLED";
-  return null; // status tidak dikenali -> jangan sentuh apa pun
+  return null;
 }
 
 /**
  * Cari dokumen order berdasarkan order_id di ROOT COLLECTION "orders".
- * (Perbaikan: sebelumnya menggunakan collectionGroup yang salah)
+ * (Perbaikan: sebelumnya menggunakan collectionGroup)
  */
 async function findOrderByOrderId(orderId) {
   const snapshot = await db
@@ -139,7 +139,6 @@ export async function POST(request) {
 
   if (!orderDoc) {
     console.error(`[webhooks/midtrans] order_id=${order_id} tidak ditemukan di Firestore.`);
-    // Balas 200 supaya Midtrans tidak retry terus
     return NextResponse.json({ status: "OK" });
   }
 

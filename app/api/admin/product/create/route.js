@@ -16,7 +16,6 @@
  * }
  *
  * KEAMANAN: Belum ada verifikasi Auth. Tambahkan verifikasi token sebelum deploy.
- * Gunakan admin.auth().verifyIdToken(token) untuk proteksi.
  */
 
 import { NextResponse } from "next/server";
@@ -56,15 +55,28 @@ export async function POST(request) {
     // --- 1. Simpan produk ke subkoleksi products ---
     const productRef = storeRef.collection("products").doc();
 
+    // Sanitasi data varian: pastikan setiap varian punya sku unik
+    const sanitizedVariants = (product.variants || []).map((v, index) => ({
+      sku: v.sku || `${product.name.replace(/\s/g, '').toUpperCase()}-${index + 1}`,
+      name: v.name || `Varian ${index + 1}`,
+      price: Number(v.price) || 0,
+      stock: Number(v.stock) || 0,
+      image_url: v.image_url || "",
+    }));
+
+    // Sanitasi gambar: filter yang kosong
+    const sanitizedImages = (product.images || [])
+      .filter(img => img && img.trim() !== "");
+
     const productData = {
       name: product.name.trim(),
       description: product.description || "",
       category: product.category || "",
-      images: Array.isArray(product.images) ? product.images : [""],
+      images: sanitizedImages.length > 0 ? sanitizedImages : [""],
       has_variants: product.has_variants ?? false,
       base_price: product.has_variants ? 0 : (Number(product.base_price) || 0),
       base_stock: product.has_variants ? 0 : (Number(product.base_stock) || 0),
-      variants: Array.isArray(product.variants) ? product.variants : [],
+      variants: sanitizedVariants,
       is_active: true,
       created_at: FieldValue.serverTimestamp(),
       updated_at: FieldValue.serverTimestamp(),
@@ -76,14 +88,13 @@ export async function POST(request) {
     if (Array.isArray(fields) && fields.length > 0) {
       const storeSnap = await storeRef.get();
 
-      // Ambil custom_form_fields yang sudah ada
       const existingFields = storeSnap.exists
         ? (storeSnap.data().custom_form_fields || [])
         : [];
 
       const existingIds = new Set(existingFields.map((f) => f.field_id));
 
-      // Hanya tambahkan field yang belum ada (berdasarkan field_id)
+      // Hanya tambahkan field yang belum ada
       const newFields = fields.filter((f) => !existingIds.has(f.field_id));
 
       if (newFields.length > 0) {
@@ -94,7 +105,6 @@ export async function POST(request) {
       }
     }
 
-    // --- 3. Response sukses ---
     return NextResponse.json(
       {
         success: true,

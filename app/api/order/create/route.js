@@ -14,6 +14,7 @@
  * - Parsing notes -> custom_field_responses
  * - Pencocokan varian fleksibel (case-insensitive partial match)
  * - Gross_amount integer (Rupiah)
+ * - Expiry format sesuai Midtrans: "YYYY-MM-DD HH:mm:ss +0700"
  */
 
 import { NextResponse } from "next/server";
@@ -69,6 +70,22 @@ async function releaseStockForOrder(orderData) {
       }
     }
   });
+}
+
+/**
+ * Format tanggal untuk Midtrans expiry
+ * Format: "2026-08-13 07:00:00 +0700"
+ */
+function formatMidtransDateTime(date) {
+  const offset = 7 * 60; // WIB = UTC+7
+  const localTime = new Date(date.getTime() + offset * 60000);
+  const year = localTime.getFullYear();
+  const month = String(localTime.getMonth() + 1).padStart(2, '0');
+  const day = String(localTime.getDate()).padStart(2, '0');
+  const hours = String(localTime.getHours()).padStart(2, '0');
+  const minutes = String(localTime.getMinutes()).padStart(2, '0');
+  const seconds = String(localTime.getSeconds()).padStart(2, '0');
+  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds} +0700`;
 }
 
 export async function POST(request) {
@@ -267,6 +284,9 @@ export async function POST(request) {
     // --- 2. Panggil Midtrans Snap API ---
     let snapResponse;
     try {
+      // === PERBAIKAN: Format start_time sesuai Midtrans ===
+      const formattedStart = formatMidtransDateTime(new Date());
+
       snapResponse = await snap.createTransaction({
         transaction_details: {
           order_id: orderData.order_id,
@@ -283,7 +303,7 @@ export async function POST(request) {
           name: item.name.slice(0, 50),
         })),
         expiry: {
-          start_time: new Date().toISOString(),
+          start_time: formattedStart,
           duration: 60,
           unit: "minute",
         },
