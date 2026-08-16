@@ -1,0 +1,29 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+:root {
+  --ink: #14213D;      /* teks utama, tombol primer, frame ponsel */
+  --paper: #FFFFFF;    /* background kartu */
+  --canvas: #F4F5F4;   /* background halaman */
+  --marigold: #F2A93B; /* aksen/CTA utama */
+  --pine: #2F6D5D;     /* aksi positif (tambah, terapkan) */
+  --brick: #C1443C;    /* peringatan/hapus */
+  --line: #E4E4E0;     /* border */
+  --muted: #6B7280;    /* teks sekunder */
+}
+
+body {
+  font-family: 'Inter', sans-serif;
+  color: var(--ink);
+}
+
+.font-display {
+  font-family: 'Space Grotesk', sans-serif;
+}
+
+.font-mono {
+  font-family: 'IBM Plex Mono', monospace;
+}
