@@ -10,29 +10,32 @@ const nextConfig = {
             value: [
               "default-src 'self'",
 
-              // FIX: Tambah wildcard *.gopayapi.com supaya semua subdomain/path GoPay SDK jalan
               "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
               "https://app.midtrans.com",
               "https://snap-assets.midtrans.com",
               "https://api.midtrans.com",
               "https://pay.google.com",
-              "https://gwk.gopayapi.com",        // domain saja (semua path)
-              "https://*.gopayapi.com",           // FIX: wildcard subdomain GoPay
+              "https://gwk.gopayapi.com",
+              "https://*.gopayapi.com",
               "https://www.googletagmanager.com",
               "https://www.google-analytics.com",
               "https://o.alicdn.com",
               "https://g.alicdn.com",
 
+              // FIX: Tambah semua URL yang dipakai Firebase Client SDK (onSnapshot/realtime)
               "connect-src 'self'",
               "https://*.googleapis.com",
               "https://*.firebaseio.com",
               "https://firestore.googleapis.com",
               "https://identitytoolkit.googleapis.com",
               "wss://*.googleapis.com",
+              "wss://*.firebaseio.com",                       // FIX: WebSocket Firebase realtime
+              "https://firestore.googleapis.com/google.firestore.v1.Firestore/*", // FIX: gRPC-web Firestore
+              "https://*.firebaseapp.com",
               "https://app.midtrans.com",
               "https://api.midtrans.com",
               "https://snap-assets.midtrans.com",
-              "https://*.gopayapi.com",           // FIX: GoPay connect juga
+              "https://*.gopayapi.com",
               "https://gwk.gopayapi.com",
 
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",

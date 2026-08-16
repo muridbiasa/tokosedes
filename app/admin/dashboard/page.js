@@ -62,10 +62,10 @@ export default function AdminDashboardPage() {
 
   // Menarik Data Pesanan Real-time dari Firestore
   useEffect(() => {
-    // Asumsi collection pesanan bernama 'orders' dan kita filter berdasarkan storeId
+    // FIX: field di Firestore adalah "store_id" (bukan "storeId")
     const q = query(
       collection(db, "orders"),
-      where("storeId", "==", "tokosedes-prod")
+      where("store_id", "==", "tokosedes-prod")
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
