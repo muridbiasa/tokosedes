@@ -1,41 +1,40 @@
 'use client';
 
+/**
+ * app/payment/page.jsx
+ *
+ * FIX: Hapus manual document.createElement('script') untuk snap.js —
+ * ini dianggap inline script oleh CSP dan akan diblock.
+ * snap.js sudah diload global via layout.js, tinggal pakai window.snap langsung.
+ */
+
 export default function PaymentPage() {
-  const MIDTRANS_CLIENT_KEY = process.env.NEXT_PUBLIC_MIDTRANS_CLIENT_KEY;
-
   const handlePayment = async () => {
-    if (typeof window !== 'undefined') {
-      if (!window.snap) {
-        const script = document.createElement('script');
-        script.src = 'https://app.midtrans.com/snap/snap.js';
-        script.setAttribute('data-client-key', MIDTRANS_CLIENT_KEY); 
-        script.async = true;
-        document.body.appendChild(script);
+    if (typeof window === 'undefined') return;
 
-        script.onload = async () => {
-          try {
-            const response = await fetch('/api/order/create', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ /* data order Anda */ }),
-            });
-            const data = await response.json();
-            if (data.token) window.snap.pay(data.token);
-          } catch (error) {
-            console.error("Gagal memuat pembayaran:", error);
-          }
-        };
-      } else {
-        const response = await fetch('/api/order/create', { method: 'POST' });
-        const data = await response.json();
-        window.snap.pay(data.token);
-      }
+    // snap.js sudah diload di layout.js — langsung pakai, tidak perlu inject ulang
+    if (!window.snap) {
+      alert('Midtrans Snap belum siap. Coba refresh halaman.');
+      return;
     }
-  }
+
+    try {
+      const response = await fetch('/api/order/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ /* data order */ }),
+      });
+      const data = await response.json();
+      if (data.token) window.snap.pay(data.token);
+    } catch (error) {
+      console.error('Gagal memuat pembayaran:', error);
+      alert('Gagal memuat pembayaran. Silakan coba lagi.');
+    }
+  };
 
   return (
     <div className="p-4">
-      <button 
+      <button
         onClick={handlePayment}
         className="bg-blue-600 text-white px-4 py-2 rounded"
       >
