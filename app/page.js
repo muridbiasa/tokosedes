@@ -12,9 +12,11 @@ import {
   AlertTriangle,
   ChevronUp,
   ChevronDown,
+  Store,
 } from "lucide-react";
 import DriveImage from "@/components/shared/DriveImage";
-import { mockStore, mockCustomFields } from "@/lib/mockData"; // mockProducts sudah dihapus
+import { mockCustomFields } from "@/lib/mockData";
+import { useStoreSettings, getGridClasses } from "@/hooks/useStoreSettings";
 
 /**
  * app/page.js
@@ -33,6 +35,9 @@ function cartKey(productId, sku) {
 }
 
 export default function StorefrontPage() {
+  // HOOK: Fetch store settings from Firestore
+  const { settings, loading: loadingSettings } = useStoreSettings();
+  
   // STATE BARU: Menampung data produk dari Firebase
   const [products, setProducts] = useState([]);
   const [loadingProducts, setLoadingProducts] = useState(true);
@@ -227,27 +232,65 @@ export default function StorefrontPage() {
   return (
     <div className="min-h-screen bg-[var(--canvas)] pb-28">
       {/* --- Header Toko --- */}
-      <header className="border-b border-[var(--line)] bg-[var(--paper)] px-4 py-6">
+      <header 
+        className="border-b border-[var(--line)] bg-[var(--paper)] px-4 py-6"
+        style={{ 
+          borderBottomColor: settings?.themeColor ? `${settings.themeColor}33` : 'var(--line)',
+          backgroundColor: settings?.themeColor ? `${settings.themeColor}11` : 'var(--paper)'
+        }}
+      >
         <div className="mx-auto max-w-2xl">
-          <div className="flex items-center gap-2">
-            <h1 className="font-display text-xl font-semibold text-[var(--ink)]">
-              {mockStore.store_name}
-            </h1>
-            {mockStore.is_active ? (
+          {loadingSettings ? (
+            <div className="flex items-center gap-2">
+              <div className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--line)] border-t-[var(--ink)]" />
+              <span className="text-sm text-[var(--muted)]">Memuat toko...</span>
+            </div>
+          ) : !settings?.isStoreOpen ? (
+            // STORE CLOSED UI
+            <div className="text-center py-8">
+              <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-[var(--brick)]/10 mb-4">
+                <Store className="w-8 h-8 text-[var(--brick)]" />
+              </div>
+              <h1 className="font-display text-2xl font-semibold text-[var(--ink)] mb-2">
+                Toko Sedang Tutup
+              </h1>
+              <p className="text-sm text-[var(--muted)] max-w-md mx-auto">
+                {settings?.description || "Maaf, toko sedang tidak menerima pesanan saat ini. Silakan kembali lagi nanti."}
+              </p>
+              <div className="mt-6 inline-flex items-center gap-2 rounded-full bg-[var(--brick)]/10 px-4 py-2 text-xs font-medium text-[var(--brick)]">
+                <span className="h-2 w-2 rounded-full bg-[var(--brick)] animate-pulse" />
+                Status: Tutup Sementara
+              </div>
+            </div>
+          ) : (
+            // STORE OPEN - Normal Header
+            <div className="flex items-center gap-2">
+              <h1 
+                className="font-display text-xl font-semibold text-[var(--ink)]"
+                style={{ color: settings?.themeColor || 'var(--ink)' }}
+              >
+                {settings?.storeName}
+              </h1>
               <span className="flex items-center gap-1 rounded-full bg-[var(--pine)]/10 px-2 py-0.5 text-[10px] font-medium text-[var(--pine)]">
                 <span className="h-1.5 w-1.5 rounded-full bg-[var(--pine)]" /> Buka
               </span>
-            ) : (
-              <span className="rounded-full bg-[var(--brick)]/10 px-2 py-0.5 text-[10px] font-medium text-[var(--brick)]">
-                Tutup
-              </span>
-            )}
-          </div>
-          <p className="mt-1 text-sm text-[var(--muted)]">{mockStore.description}</p>
+            </div>
+          )}
+          
+          {/* Description - only show when store is open */}
+          {settings?.isStoreOpen && (
+            <p 
+              className="mt-1 text-sm text-[var(--muted)]"
+              style={{ color: settings?.themeColor ? `${settings.themeColor}cc` : 'var(--muted)' }}
+            >
+              {settings?.description}
+            </p>
+          )}
         </div>
       </header>
 
       {/* --- Katalog Produk --- */}
+      {!loadingSettings && settings?.isStoreOpen && (
       <main className="mx-auto max-w-2xl px-4 py-6">
         <h2 className="mb-3 font-display text-sm font-semibold uppercase tracking-wide text-[var(--muted)]">
           Katalog Produk
@@ -263,7 +306,7 @@ export default function StorefrontPage() {
             Belum ada produk di database Firestore.
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className={`grid gap-4 ${getGridClasses(settings?.catalogGridSize)}`}>
             {products.map((product) => (
               <ProductCard
                 key={product.product_id}
@@ -273,6 +316,7 @@ export default function StorefrontPage() {
                   setSelectedVariant((prev) => ({ ...prev, [product.product_id]: index }))
                 }
                 onAddToCart={() => addToCart(product)}
+                themeColor={settings?.themeColor}
               />
             ))}
           </div>
@@ -340,6 +384,7 @@ export default function StorefrontPage() {
             ))}
         </section>
       </main>
+      )}
 
       {/* --- Sticky Bottom Bar --- */}
       {totalQty > 0 && checkoutState === "idle" && (
@@ -426,7 +471,7 @@ export default function StorefrontPage() {
   );
 }
 
-function ProductCard({ product, selectedIndex, onSelectVariant, onAddToCart }) {
+function ProductCard({ product, selectedIndex, onSelectVariant, onAddToCart, themeColor }) {
   const variant = product.has_variants ? product.variants[selectedIndex] : null;
   const price = variant ? variant.price : product.base_price;
   const stock = variant ? variant.stock : product.base_stock;
@@ -448,7 +493,12 @@ function ProductCard({ product, selectedIndex, onSelectVariant, onAddToCart }) {
           <p className="line-clamp-2 text-xs text-[var(--muted)]">{product.description}</p>
         </div>
 
-        <p className="font-mono text-sm font-semibold text-[var(--ink)]">{formatRupiah(price)}</p>
+        <p 
+          className="font-mono text-sm font-semibold"
+          style={{ color: themeColor || 'var(--ink)' }}
+        >
+          {formatRupiah(price)}
+        </p>
 
         {product.has_variants && (
           <div className="flex flex-wrap gap-1.5">
@@ -465,6 +515,10 @@ function ProductCard({ product, selectedIndex, onSelectVariant, onAddToCart }) {
                       ? "border-[var(--ink)] bg-[var(--ink)] text-white"
                       : "border-[var(--line)] text-[var(--ink)]"
                   } ${vSoldOut ? "opacity-40 line-through" : ""}`}
+                  style={i === selectedIndex && themeColor ? {
+                    backgroundColor: themeColor,
+                    borderColor: themeColor,
+                  } : undefined}
                 >
                   {v.name}
                 </button>
@@ -483,7 +537,8 @@ function ProductCard({ product, selectedIndex, onSelectVariant, onAddToCart }) {
           type="button"
           disabled={soldOut}
           onClick={onAddToCart}
-          className="flex w-full items-center justify-center gap-1.5 rounded-md bg-[var(--ink)] py-2 text-xs font-semibold text-white transition-opacity disabled:cursor-not-allowed disabled:opacity-30"
+          className="flex w-full items-center justify-center gap-1.5 rounded-md py-2 text-xs font-semibold text-white transition-opacity disabled:cursor-not-allowed disabled:opacity-30"
+          style={{ backgroundColor: themeColor || 'var(--ink)' }}
         >
           <Plus size={13} /> Tambah ke Keranjang
         </button>
