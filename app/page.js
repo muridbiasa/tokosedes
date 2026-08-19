@@ -17,6 +17,7 @@ import {
 import DriveImage from "@/components/shared/DriveImage";
 import { mockCustomFields } from "@/lib/mockData";
 import { useStoreSettings, getGridClasses } from "@/hooks/useStoreSettings";
+import ProductDetailModal from "@/components/ProductDetailModal";
 
 /**
  * app/page.js
@@ -46,6 +47,11 @@ export default function StorefrontPage() {
   const [cart, setCart] = useState({});
   // varian yang sedang dipilih per produk di kartu (belum tentu masuk keranjang)
   const [selectedVariant, setSelectedVariant] = useState({});
+  
+  // STATE BARU: Modal product detail
+  const [modalOpen, setModalOpen] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState(null);
+  
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [customFieldValues, setCustomFieldValues] = useState({});
@@ -94,8 +100,12 @@ export default function StorefrontPage() {
     return product.variants[index];
   }
 
-  function addToCart(product) {
-    const variant = getSelectedVariant(product);
+  function addToCart(product, variantIndex = null, qty = 1) {
+    // Support both old API (no args) and new modal API (with variantIndex and qty)
+    const variant = variantIndex !== null 
+      ? product.variants[variantIndex] 
+      : getSelectedVariant(product);
+    
     const sku = variant?.sku || product.product_id;
     const price = variant ? variant.price : product.base_price;
     const stock = variant ? variant.stock : product.base_stock;
@@ -104,7 +114,8 @@ export default function StorefrontPage() {
 
     setCart((prev) => {
       const existingQty = prev[key]?.qty || 0;
-      if (existingQty + 1 > stock) return prev; // jaga-jaga, tombol + juga sudah disabled saat stok habis
+      const newQty = existingQty + qty;
+      if (newQty > stock) return prev; // jaga-jaga, tombol + juga sudah disabled saat stok habis
       return {
         ...prev,
         [key]: {
@@ -113,7 +124,7 @@ export default function StorefrontPage() {
           sku,
           name,
           price,
-          qty: existingQty + 1,
+          qty: newQty,
           maxStock: stock,
         },
       };
@@ -315,7 +326,10 @@ export default function StorefrontPage() {
                 onSelectVariant={(index) =>
                   setSelectedVariant((prev) => ({ ...prev, [product.product_id]: index }))
                 }
-                onAddToCart={() => addToCart(product)}
+                onOpenModal={() => {
+                  setSelectedProduct(product);
+                  setModalOpen(true);
+                }}
                 themeColor={settings?.themeColor}
               />
             ))}
@@ -467,18 +481,30 @@ export default function StorefrontPage() {
           onDone={resetAfterSuccess}
         />
       )}
+
+      {/* --- Product Detail Modal (Phase 2) --- */}
+      <ProductDetailModal
+        product={selectedProduct}
+        isOpen={modalOpen}
+        onClose={() => setModalOpen(false)}
+        onAddToCart={(product, variantIndex, qty) => addToCart(product, variantIndex, qty)}
+        themeColor={settings?.themeColor}
+      />
     </div>
   );
 }
 
-function ProductCard({ product, selectedIndex, onSelectVariant, onAddToCart, themeColor }) {
+function ProductCard({ product, selectedIndex, onSelectVariant, onOpenModal, themeColor }) {
   const variant = product.has_variants ? product.variants[selectedIndex] : null;
   const price = variant ? variant.price : product.base_price;
   const stock = variant ? variant.stock : product.base_stock;
   const soldOut = stock <= 0;
 
   return (
-    <div className="overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--paper)]">
+    <div 
+      className="overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--paper)] transition-shadow hover:shadow-md cursor-pointer"
+      onClick={onOpenModal}
+    >
       <div className="aspect-square w-full bg-[var(--canvas)]">
         <DriveImage
           src={product.images?.[0]}
@@ -509,7 +535,10 @@ function ProductCard({ product, selectedIndex, onSelectVariant, onAddToCart, the
                   key={v.sku}
                   type="button"
                   disabled={vSoldOut}
-                  onClick={() => onSelectVariant(i)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSelectVariant(i);
+                  }}
                   className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
                     i === selectedIndex
                       ? "border-[var(--ink)] bg-[var(--ink)] text-white"
@@ -533,15 +562,10 @@ function ProductCard({ product, selectedIndex, onSelectVariant, onAddToCart, the
           <p className="text-[11px] text-[var(--muted)]">Sisa stok: {stock}</p>
         )}
 
-        <button
-          type="button"
-          disabled={soldOut}
-          onClick={onAddToCart}
-          className="flex w-full items-center justify-center gap-1.5 rounded-md py-2 text-xs font-semibold text-white transition-opacity disabled:cursor-not-allowed disabled:opacity-30"
-          style={{ backgroundColor: themeColor || 'var(--ink)' }}
-        >
-          <Plus size={13} /> Tambah ke Keranjang
-        </button>
+        {/* Removed direct Add to Cart button - user must click card to open modal */}
+        <div className="flex items-center justify-center gap-1.5 rounded-md py-2 text-xs font-medium text-[var(--muted)] bg-[var(--canvas)]">
+          <ShoppingCart size={13} /> Klik untuk detail
+        </div>
       </div>
     </div>
   );
