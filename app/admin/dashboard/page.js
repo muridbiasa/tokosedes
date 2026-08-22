@@ -6,13 +6,14 @@ import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { createProfile, setActiveProfile, subscribeActiveProfile, subscribeProfiles, toCsv, updateProfile } from "@/lib/storeProfiles";
 import { Download, ExternalLink, Plus, Search, Store, TrendingUp, Wallet, X } from "lucide-react";
+import AdminAuthGate from "@/components/admin/AdminAuthGate";
 
 const STATUS_TABS = ["Semua", "PAID", "PENDING", "EXPIRED", "FAILED"];
 const money = (value) => `Rp${Number(value || 0).toLocaleString("id-ID")}`;
 const dateValue = (value) => value?.toDate ? value.toDate() : new Date(value || 0);
 const dateText = (value) => value ? dateValue(value).toLocaleString("id-ID", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "-";
 
-export default function AdminDashboardPage() {
+function AdminDashboardContent() {
   const [profiles, setProfiles] = useState([]);
   const [activeId, setActiveId] = useState(null);
   const [orders, setOrders] = useState([]);
@@ -114,6 +115,10 @@ export default function AdminDashboardPage() {
     {showCreate && <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--ink)]/40 p-4" role="presentation"><form onSubmit={handleCreate} className="flex w-full max-w-sm flex-col gap-4 rounded-xl border border-[var(--line)] bg-[var(--paper)] p-5 shadow-xl" role="dialog" aria-modal="true" aria-labelledby="create-title"><div className="flex items-center justify-between"><h2 id="create-title" className="font-display text-lg font-semibold">Buat profil toko</h2><button type="button" onClick={() => setShowCreate(false)} aria-label="Tutup"><X size={18} /></button></div><label htmlFor="store-name" className="text-sm font-semibold">Nama toko</label><input id="store-name" autoFocus required minLength={2} maxLength={80} value={customName} onChange={(e) => setCustomName(e.target.value)} placeholder="Contoh: Toko Sedes" className="rounded-md border border-[var(--line)] px-3 py-2 text-sm" />{createError && <p role="alert" className="text-sm text-[var(--brick)]">{createError}</p>}<button disabled={saving} className="rounded-md bg-[var(--marigold)] px-4 py-2 text-sm font-semibold disabled:opacity-60">{saving ? "Menyimpan..." : "Buat & aktifkan"}</button></form></div>}
   </div>;
 }
+export default function AdminDashboardPage() {
+  return <AdminAuthGate><AdminDashboardContent /></AdminAuthGate>;
+}
+
 function Metric({ icon, label, value }) { return <div className="rounded-lg border border-[var(--line)] bg-[var(--paper)] p-4"><div className="flex items-center gap-2 text-xs uppercase tracking-wide text-[var(--muted)]">{icon}{label}</div><p className="mt-2 font-mono text-xl font-semibold">{value}</p></div>; }
 
 // Analytics are intentionally disabled until a store profile exists; no mock data is shown.
