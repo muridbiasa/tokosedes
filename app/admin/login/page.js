@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { useRouter } from "next/navigation";
-import { auth } from "@/lib/firebase";
+import { auth, firebaseConfigReady } from "@/lib/firebase";
 
 export default function AdminLoginPage() {
   const router = useRouter();
@@ -11,9 +11,16 @@ export default function AdminLoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  useEffect(() => { if (auth.currentUser) router.replace("/admin/dashboard"); }, [router]);
+  useEffect(() => {
+    if (firebaseConfigReady && auth?.currentUser) router.replace("/admin/dashboard");
+  }, [router]);
   async function submit(event) {
     event.preventDefault(); setBusy(true); setError("");
+    if (!firebaseConfigReady || !auth) {
+      setError("Konfigurasi Firebase belum tersedia di deployment ini.");
+      setBusy(false);
+      return;
+    }
     try { await signInWithEmailAndPassword(auth, email.trim(), password); router.replace("/admin/dashboard"); }
     catch (err) { setError(err.code === "auth/invalid-credential" ? "Email atau password salah." : "Login gagal. Pastikan Email/Password aktif di Firebase."); }
     finally { setBusy(false); }
