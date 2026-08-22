@@ -67,6 +67,11 @@ export default function StorefrontPage() {
   // MENGAMBIL DATA KATALOG DARI FIRESTORE
   useEffect(() => {
     async function fetchProducts() {
+      if (!storeId) {
+        setProducts([]);
+        setLoadingProducts(false);
+        return;
+      }
       try {
         const querySnapshot = await getDocs(collection(db, 'stores', storeId, 'products'));
         const items = [];
@@ -93,7 +98,7 @@ export default function StorefrontPage() {
       }
     }
     fetchProducts();
-  }, []);
+  }, [storeId]);
 
   function getSelectedVariant(product) {
     if (!product.has_variants) return null;
@@ -268,7 +273,7 @@ export default function StorefrontPage() {
                 Toko Sedang Tutup
               </h1>
               <p className="text-sm text-[var(--muted)] max-w-md mx-auto">
-                {settings?.description || "Maaf, toko sedang tidak menerima pesanan saat ini. Silakan kembali lagi nanti."}
+                {settings?.closedMessage || "Maaf, toko sedang tidak menerima pesanan saat ini. Silakan kembali lagi nanti."}
               </p>
               <div className="mt-6 inline-flex items-center gap-2 rounded-full bg-[var(--brick)]/10 px-4 py-2 text-xs font-medium text-[var(--brick)]">
                 <span className="h-2 w-2 rounded-full bg-[var(--brick)] animate-pulse" />
