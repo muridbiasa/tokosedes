@@ -2,19 +2,26 @@
 
 import { useEffect, useState } from "react";
 import { onAuthStateChanged, signOut } from "firebase/auth";
-import { auth } from "@/lib/firebase";
+import { auth, firebaseConfigReady } from "@/lib/firebase";
 import Link from "next/link";
 
 export default function AdminAuthGate({ children }) {
   const [user, setUser] = useState(undefined);
   const [isAdmin, setIsAdmin] = useState(undefined);
 
-  useEffect(() => onAuthStateChanged(auth, async (nextUser) => {
-    setUser(nextUser);
-    if (!nextUser) return setIsAdmin(false);
-    try { setIsAdmin(Boolean((await nextUser.getIdTokenResult()).claims.admin)); }
-    catch { setIsAdmin(false); }
-  }), []);
+  useEffect(() => {
+    if (!firebaseConfigReady || !auth) {
+      setUser(null);
+      setIsAdmin(false);
+      return undefined;
+    }
+    return onAuthStateChanged(auth, async (nextUser) => {
+      setUser(nextUser);
+      if (!nextUser) return setIsAdmin(false);
+      try { setIsAdmin(Boolean((await nextUser.getIdTokenResult()).claims.admin)); }
+      catch { setIsAdmin(false); }
+    });
+  }, []);
 
   if (user === undefined || isAdmin === undefined) return <main className="flex min-h-screen items-center justify-center bg-[var(--canvas)] text-[var(--ink)]">Memuat sesi...</main>;
   if (!user) return <main className="flex min-h-screen items-center justify-center bg-[var(--canvas)] p-4 text-[var(--ink)]"><section className="w-full max-w-sm rounded-xl border border-[var(--line)] bg-[var(--paper)] p-6 text-center shadow-sm"><p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">TokoSedes / Admin</p><h1 className="mt-2 font-display text-2xl font-semibold">Login diperlukan</h1><p className="mt-2 text-sm leading-6 text-[var(--muted)]">Masuk dengan akun admin Firebase untuk mengelola toko.</p><Link href="/admin/login" className="mt-5 inline-flex rounded-md bg-[var(--ink)] px-4 py-2 text-sm font-semibold text-[var(--paper)]">Masuk sebagai admin</Link></section></main>;
