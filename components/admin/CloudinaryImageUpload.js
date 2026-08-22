@@ -17,7 +17,8 @@ export default function CloudinaryImageUpload({ value = [], onChange, multiple =
   return (
     <div className="flex flex-col gap-3">
       <CldUploadWidget
-        uploadPreset={process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET}
+        config={{ cloud: { cloudName: process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || "pqrglbhd" } }}
+        uploadPreset={process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET || "toko_sedes"}
         options={{
           multiple,
           maxFiles: multiple ? 8 : 1,
