@@ -9,7 +9,7 @@ import LivePreview from "@/components/admin/LivePreview";
 import { updateProfileSettings } from "@/lib/storeProfiles";
 import { useStoreSettings } from "@/hooks/useStoreSettings";
 
-const EMPTY_PRODUCT = { name: "", description: "", category: "", images: [""], has_variants: true, base_price: 0, base_stock: 0, variants: [] };
+const EMPTY_PRODUCT = { name: "", description: "", category: "", images: [], has_variants: true, base_price: 0, selling_price: 0, base_cost: 0, base_stock: 0, unlimited_stock: false, is_active: true, variants: [] };
 
 export default function NewProductPage() {
   const router = useRouter();

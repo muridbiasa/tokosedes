@@ -57,11 +57,12 @@ export async function POST(request) {
 
     // Sanitasi data varian: pastikan setiap varian punya sku unik
     const sanitizedVariants = (product.variants || []).map((v, index) => ({
-      sku: v.sku || `${product.name.replace(/\s/g, '').toUpperCase()}-${index + 1}`,
-      name: v.name || `Varian ${index + 1}`,
-      price: Number(v.price) || 0,
-      stock: Number(v.stock) || 0,
-      image_url: v.image_url || "",
+      sku: String(v.sku || `${product.name.replace(/\s/g, '').toUpperCase()}-${index + 1}`).trim(),
+      name: String(v.name || `Varian ${index + 1}`).trim(),
+      price: Math.max(0, Number(v.price) || 0),
+      stock: v.unlimited_stock ? 0 : Math.max(0, Number(v.stock) || 0),
+      unlimited_stock: Boolean(v.unlimited_stock),
+      image_url: String(v.image_url || "").trim(),
     }));
 
     // Sanitasi gambar: filter yang kosong
