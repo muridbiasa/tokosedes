@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { doc, getDoc } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 import { CheckCircle2, Loader2, Save } from "lucide-react";
 import FormBuilder from "@/components/admin/FormBuilder";
 import StoreBuilder from "@/components/admin/StoreBuilder";
@@ -15,6 +17,10 @@ const EMPTY_PRODUCT = { name: "", description: "", category: "", images: [], has
 export default function NewProductPage() {
   const router = useRouter();
   const { storeId, settings } = useStoreSettings();
+  const [productId, setProductId] = useState("");
+  useEffect(() => {
+    setProductId(new URLSearchParams(window.location.search).get("productId") || "");
+  }, []);
   const [product, setProduct] = useState(EMPTY_PRODUCT);
   const [fields, setFields] = useState([]);
   const [storeSettings, setStoreSettings] = useState(null);
@@ -23,7 +29,23 @@ export default function NewProductPage() {
   const [showSuccess, setShowSuccess] = useState(false);
   const [settingsSaveState, setSettingsSaveState] = useState("idle");
 
-  useEffect(() => { if (settings) setStoreSettings(settings); }, [settings]);
+  useEffect(() => {
+    if (settings) {
+      setStoreSettings(settings);
+      setFields(Array.isArray(settings.custom_form_fields) ? settings.custom_form_fields : []);
+    }
+  }, [settings]);
+
+  useEffect(() => {
+    if (!storeId || !productId) return;
+    let cancelled = false;
+    getDoc(doc(db, "stores", storeId, "products", productId)).then((snapshot) => {
+      if (cancelled || !snapshot.exists()) return;
+      const data = snapshot.data();
+      setProduct({ ...EMPTY_PRODUCT, ...data, images: Array.isArray(data.images) ? data.images.filter(Boolean) : [], variants: Array.isArray(data.variants) ? data.variants : [] });
+    }).catch((error) => console.error("[v0] failed to load product", error));
+    return () => { cancelled = true; };
+  }, [storeId, productId]);
 
   async function saveSettingsOnly() {
     setSettingsSaveState("saving");
@@ -42,7 +64,8 @@ export default function NewProductPage() {
     setIsSaving(true);
     try {
       await updateProfileSettings(storeId, { ...(storeSettings || {}), custom_form_fields: finalFields });
-      const res = await fetch("/api/admin/product/create", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ storeId, product: finalProduct, fields: finalFields }) });
+      const endpoint = productId ? "/api/admin/product/update" : "/api/admin/product/create";
+      const res = await fetch(endpoint, { method: productId ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ storeId, productId, product: finalProduct, fields: finalFields }) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Gagal menyimpan produk");
       setShowSuccess(true);
