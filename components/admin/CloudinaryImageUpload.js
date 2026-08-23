@@ -19,6 +19,10 @@ export default function CloudinaryImageUpload({ value = [], onChange, multiple =
       <CldUploadWidget
         config={{ cloud: { cloudName: process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || "pqrglbhd" } }}
         uploadPreset={process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET || "toko_sedes"}
+        onError={(error) => {
+          console.error("[v0] Cloudinary upload failed", error);
+          setIsUploading(false);
+        }}
         options={{
           multiple,
           maxFiles: multiple ? 8 : 1,
@@ -30,10 +34,9 @@ export default function CloudinaryImageUpload({ value = [], onChange, multiple =
         onOpen={() => setIsUploading(true)}
         onClose={() => setIsUploading(false)}
         onSuccess={handleSuccess}
-        onError={() => setIsUploading(false)}
       >
         {({ open }) => (
-          <button type="button" onClick={() => open()} disabled={isUploading} className="flex items-center gap-2 self-start rounded-md border border-[var(--line)] px-3 py-2 text-xs font-semibold hover:bg-[var(--canvas)] disabled:opacity-60">
+          <button type="button" onClick={() => open?.()} disabled={isUploading || !open} className="flex items-center gap-2 self-start rounded-md border border-[var(--line)] px-3 py-2 text-xs font-semibold hover:bg-[var(--canvas)] disabled:opacity-60">
             {isUploading ? <Loader2 className="animate-spin" data-icon="inline-start" /> : <ImagePlus data-icon="inline-start" />}
             {isUploading ? "Mengunggah..." : label}
           </button>

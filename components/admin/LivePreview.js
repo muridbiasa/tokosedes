@@ -15,11 +15,13 @@ export default function LivePreview({ product = {}, fields = [], settings = {} }
   useEffect(() => { if (imageIndex >= images.length) setImageIndex(0); }, [imageIndex, images.length]);
 
   const price = variant?.price ?? product.selling_price ?? product.base_price ?? product.price ?? 0;
-  const accent = settings.themeColor || "#F2A93B";
-  const headerStyle = settings.headerMode === "image" && settings.headerValue
-    ? { backgroundImage: `url(${settings.headerValue})`, backgroundSize: "cover", backgroundPosition: "center" }
-    : settings.headerMode === "gradient" && settings.headerValue
-      ? { background: settings.headerValue }
+  const accent = settings.themeColor || settings.theme_color || "#F2A93B";
+  const headerMode = settings.headerMode || settings.header_mode || "solid";
+  const headerValue = settings.headerValue || settings.header_value || "";
+  const headerStyle = headerMode === "image" && headerValue
+    ? { backgroundImage: `url(${headerValue})`, backgroundSize: "cover", backgroundPosition: "center" }
+    : headerMode === "gradient" && headerValue
+      ? { background: headerValue }
       : { background: accent };
   const visibleFields = Array.isArray(fields) ? fields.filter((field) => field?.label || field?.name) : [];
   const gridClass = settings.catalogGridSize === "small" ? "grid-cols-3" : settings.catalogGridSize === "large" ? "grid-cols-1" : "grid-cols-2";
