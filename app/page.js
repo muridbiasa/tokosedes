@@ -15,7 +15,6 @@ import {
   Store,
 } from "lucide-react";
 import DriveImage from "@/components/shared/DriveImage";
-import { mockCustomFields } from "@/lib/mockData";
 import { useStoreSettings } from "@/hooks/useStoreSettings";
 import { getGridClasses, isUnlimitedStock, stockAllows, safePhone, isValidPhone } from "@/lib/storeProfiles";
 import ProductDetailModal from "@/components/ProductDetailModal";
@@ -164,7 +163,7 @@ export default function StorefrontPage() {
     if (!customerPhone.trim()) errors.customerPhone = "No. WhatsApp wajib diisi";
     else if (!isValidPhone(customerPhone)) errors.customerPhone = "Gunakan 8-15 digit angka";
 
-    for (const field of (settings?.custom_form_fields || mockCustomFields)) {
+    for (const field of settings?.custom_form_fields || []) {
       if (field.is_required && !customFieldValues[field.field_id]) {
         errors[field.field_id] = "Wajib diisi";
       }
@@ -321,7 +320,7 @@ export default function StorefrontPage() {
           </div>
         ) : products.length === 0 ? (
           <div className="rounded-lg border border-dashed border-[var(--line)] p-8 text-center text-sm text-[var(--muted)]">
-            Belum ada produk di database Firestore.
+            Maaf, barang belum tersedia.
           </div>
         ) : (
           <div className={`grid gap-4 ${getGridClasses(settings?.catalogGridSize)}`}>
@@ -391,7 +390,7 @@ export default function StorefrontPage() {
             )}
           </div>
 
-          {(settings?.custom_form_fields || mockCustomFields)
+          {(settings?.custom_form_fields || [])
             .slice()
             .sort((a, b) => a.order - b.order)
             .map((field) => (
