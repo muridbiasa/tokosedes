@@ -33,6 +33,7 @@ export default function FormBuilder({
   onProductChange,
   onFieldsChange,
   onSave,
+  storeId,
 }) {
   const [imageWarning, setImageWarning] = useState(false);
 
@@ -132,6 +133,12 @@ export default function FormBuilder({
         </div>
       </section>
 
+      <div className="grid gap-3 rounded-md border border-[var(--line)] bg-[var(--canvas)] p-3 sm:grid-cols-3">
+        <label className="flex flex-col gap-1 text-xs font-medium">HPP / modal<input type="number" min="0" value={product.base_cost || 0} onChange={(e) => updateProduct({ base_cost: Number(e.target.value) })} className="rounded border border-[var(--line)] bg-[var(--paper)] px-2 py-1.5 font-mono text-sm" /></label>
+        <label className="flex flex-col gap-1 text-xs font-medium">Harga jual<input type="number" min="0" value={product.selling_price ?? product.base_price ?? 0} onChange={(e) => updateProduct({ selling_price: Number(e.target.value), base_price: Number(e.target.value) })} className="rounded border border-[var(--line)] bg-[var(--paper)] px-2 py-1.5 font-mono text-sm" /></label>
+        {!product.has_variants && <label className="flex items-center gap-2 self-end text-xs"><input type="checkbox" checked={Boolean(product.unlimited_stock)} onChange={(e) => updateProduct({ unlimited_stock: e.target.checked, base_stock: e.target.checked ? 0 : product.base_stock })} /> Stok tidak terbatas</label>}
+      </div>
+
       {/* --- Varian --- */}
       <section className="space-y-3">
         <div className="flex items-center justify-between">
@@ -151,6 +158,7 @@ export default function FormBuilder({
           <VariantManager
             productName={product.name}
             variants={product.variants}
+            storeId={storeId}
             onChange={(variants) => updateProduct({ variants })}
           />
         ) : (

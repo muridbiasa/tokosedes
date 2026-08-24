@@ -1,344 +1,126 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { collection, query, orderBy, onSnapshot, where } from "firebase/firestore";
-import {
-  Plus,
-  Wallet,
-  CheckCircle2,
-  TrendingUp,
-  Search,
-  CloudUpload,
-  CloudOff,
-} from "lucide-react";
+import { createProfile, setActiveProfile, subscribeActiveProfile, subscribeProfiles, toCsv, updateProfile } from "@/lib/storeProfiles";
+import { Download, ExternalLink, Plus, Search, Store, TrendingUp, Wallet, X } from "lucide-react";
+import AdminAuthGate from "@/components/admin/AdminAuthGate";
 
-/**
- * app/admin/dashboard/page.js
- *
- * Dashboard Admin — Mode Produksi (Terhubung ke Firestore Real-time)
- */
+const STATUS_TABS = ["Semua", "PAID", "PENDING", "EXPIRED", "FAILED"];
+const money = (value) => `Rp${Number(value || 0).toLocaleString("id-ID")}`;
+const dateValue = (value) => value?.toDate ? value.toDate() : new Date(value || 0);
+const dateText = (value) => value ? dateValue(value).toLocaleString("id-ID", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "-";
 
-const STATUS_TABS = ["Semua", "PAID", "PENDING", "EXPIRED"];
-
-const STATUS_STYLE = {
-  PAID: "bg-[var(--pine)]/10 text-[var(--pine)]",
-  PENDING: "bg-[var(--marigold)]/15 text-[var(--ink)]",
-  EXPIRED: "bg-[var(--brick)]/10 text-[var(--brick)]",
-  CANCELLED: "bg-[var(--muted)]/10 text-[var(--muted)]",
-  FAILED: "bg-[var(--brick)]/10 text-[var(--brick)]",
-};
-
-function formatRupiah(value) {
-  return `Rp${Number(value || 0).toLocaleString("id-ID")}`;
-}
-
-// Menangani format waktu dari Firestore Timestamp atau String biasa
-function formatDateTime(val) {
-  if (!val) return "-";
-  const date = val.toDate ? val.toDate() : new Date(val);
-  return date.toLocaleString("id-ID", {
-    day: "2-digit",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function itemsSummary(items) {
-  if (!items || !Array.isArray(items)) return "-";
-  return items.map((it) => `${it.name} (x${it.quantity || it.qty || 1})`).join(", ");
-}
-
-export default function AdminDashboardPage() {
-  const [activeTab, setActiveTab] = useState("Semua");
-  const [search, setSearch] = useState("");
-
-  // State Baru untuk Produksi
+function AdminDashboardContent() {
+  const [profiles, setProfiles] = useState([]);
+  const [activeId, setActiveId] = useState(null);
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
-  const storeInfo = { store_name: "Toko Sedes", store_slug: "tokosedes-prod" };
+  const [profilesError, setProfilesError] = useState("");
+  const [status, setStatus] = useState("Semua");
+  const [search, setSearch] = useState("");
+  const [range, setRange] = useState("all");
+  const [customName, setCustomName] = useState("");
+  const [showCreate, setShowCreate] = useState(false);
+  const [createError, setCreateError] = useState("");
+  const [saving, setSaving] = useState(false);
 
-  // Menarik Data Pesanan Real-time dari Firestore
+  useEffect(() => subscribeProfiles(setProfiles, (error) => {
+    console.error("[v0] Failed to load store profiles:", error);
+    setProfilesError(error?.code === "permission-denied" ? "Firebase menolak akses. Login admin dan periksa Firestore Rules." : "Profil toko gagal dimuat.");
+    setLoading(false);
+  }), []);
+  useEffect(() => subscribeActiveProfile(setActiveId, (error) => {
+    console.error("[v0] Failed to load active profile:", error);
+    setProfilesError(error?.code === "permission-denied" ? "Firebase menolak akses. Login admin dan periksa Firestore Rules." : "Profil aktif gagal dimuat.");
+  }), []);
   useEffect(() => {
-    // FIX: field di Firestore adalah "store_id" (bukan "storeId")
-    const q = query(
-      collection(db, "orders"),
-      where("store_id", "==", "tokosedes-prod")
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const fetchedOrders = [];
-      snapshot.forEach((doc) => {
-        fetchedOrders.push({ order_id: doc.id, ...doc.data() });
-      });
-
-      // Urutkan manual (karena Firestore butuh index composite jika menggabungkan where dan orderBy)
-      fetchedOrders.sort((a, b) => {
-        const dateA = a.created_at?.toDate ? a.created_at.toDate() : new Date(a.created_at || 0);
-        const dateB = b.created_at?.toDate ? b.created_at.toDate() : new Date(b.created_at || 0);
-        return dateB - dateA; // Descending (terbaru di atas)
-      });
-
-      setOrders(fetchedOrders);
-      setLoading(false);
+    if (!activeId) { setOrders([]); setLoading(false); return undefined; }
+    setLoading(true);
+    return onSnapshot(query(collection(db, "orders"), where("store_id", "==", activeId)), (snapshot) => {
+      const next = snapshot.docs.map((item) => ({ order_id: item.id, ...item.data() }));
+      next.sort((a, b) => dateValue(b.created_at) - dateValue(a.created_at));
+      setOrders(next); setLoading(false);
     }, (error) => {
-      console.error("Gagal mengambil data pesanan:", error);
+      console.error("[v0] Failed to load orders:", error);
       setLoading(false);
     });
+  }, [activeId]);
 
-    return () => unsubscribe(); // Bersihkan listener saat pindah halaman
-  }, []);
-
-  // Menghitung Statistik Omset & Produk Terlaris secara Otomatis
-  const analyticsSummary = useMemo(() => {
-    let totalRevenue = 0;
-    let totalTransactions = 0;
-    const salesMap = {};
-
-    orders.forEach(order => {
-      if (order.payment_status === "PAID") {
-        totalRevenue += (order.total_amount || 0);
-        totalTransactions += 1;
-
-        (order.items || []).forEach(item => {
-          const qty = item.quantity || item.qty || 1;
-          salesMap[item.name] = (salesMap[item.name] || 0) + qty;
-        });
-      }
+  const filtered = useMemo(() => {
+    const now = new Date();
+    const day = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const term = search.trim().toLowerCase();
+    return orders.filter((order) => {
+      const date = dateValue(order.created_at);
+      if (range === "today" && date < day) return false;
+      if (range === "yesterday" && (date < new Date(day.getTime() - 86400000) || date >= day)) return false;
+      if (status !== "Semua" && order.payment_status !== status) return false;
+      return !term || `${order.order_id} ${order.customer_name || ""} ${order.customer_phone || ""}`.toLowerCase().includes(term);
     });
+  }, [orders, range, search, status]);
 
-    const productSales = Object.entries(salesMap)
-      .map(([name, qty]) => ({ name, qty }))
-      .sort((a, b) => b.qty - a.qty)
-      .slice(0, 3); // Ambil 3 terlaris
+  const metrics = useMemo(() => {
+    const paid = filtered.filter((item) => item.payment_status === "PAID");
+    const products = {};
+    let hpp = 0;
+    paid.forEach((order) => (order.items || []).forEach((item) => {
+      const qty = Number(item.quantity || item.qty || 1);
+      products[item.name] = (products[item.name] || 0) + qty;
+      hpp += Number(item.hpp ?? item.base_cost ?? 0) * qty;
+    }));
+    return { revenue: paid.reduce((sum, item) => sum + Number(item.total_amount || 0), 0), buyers: new Set(paid.map((item) => item.customer_phone || item.customer_name)).size, paid: paid.length, failed: filtered.filter((item) => ["FAILED", "EXPIRED"].includes(item.payment_status)).length, hpp, products: Object.entries(products).sort((a, b) => b[1] - a[1]).slice(0, 5) };
+  }, [filtered]);
 
-    return { total_revenue: totalRevenue, total_transactions: totalTransactions, product_sales: productSales };
-  }, [orders]);
+  async function handleCreate(event) {
+    event.preventDefault();
+    const name = customName.trim();
+    if (!name || saving) return;
+    setSaving(true); setCreateError("");
+    try {
+      const id = await createProfile(name);
+      await setActiveProfile(id);
+      setCustomName(""); setShowCreate(false);
+    } catch (error) {
+      console.error("[v0] Failed to create store profile:", error);
+      setCreateError(error?.code === "permission-denied" ? "Akses ditolak Firebase. Login admin dan pastikan custom claim admin aktif." : "Toko gagal dibuat. Periksa koneksi lalu coba lagi.");
+    } finally { setSaving(false); }
+  }
+  async function toggleProfile(profile) {
+    if (saving) return;
+    setSaving(true); setProfilesError("");
+    try {
+      await updateProfile(profile.id, { enabled: !profile.enabled });
+      if (!profile.enabled) await setActiveProfile(profile.id);
+    } catch (error) {
+      console.error("[v0] Failed to toggle store profile:", error);
+      setProfilesError(error?.code === "permission-denied" ? "Akses ditolak Firebase. Login admin untuk mengubah profil toko." : "Perubahan profil gagal disimpan.");
+    } finally { setSaving(false); }
+  }
+  function downloadCsv() {
+    const blob = new Blob([toCsv(filtered.map((order) => ({ id: order.order_id, waktu: dateText(order.created_at), pembeli: order.customer_name, whatsapp: order.customer_phone, total: order.total_amount, status: order.payment_status })))], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href = url; anchor.download = `orders-${activeId || "store"}.csv`; anchor.click(); URL.revokeObjectURL(url);
+  }
 
-  // Filter Search & Tab Status
-  const filteredOrders = useMemo(() => {
-    return orders
-      .filter((o) => (activeTab === "Semua" ? true : o.payment_status === activeTab))
-      .filter((o) => {
-        const q = search.trim().toLowerCase();
-        if (!q) return true;
-        return (
-          (o.customer_name || "").toLowerCase().includes(q) ||
-          (o.order_id || "").toLowerCase().includes(q)
-        );
-      });
-  }, [activeTab, search, orders]);
-
-  // Hitung jumlah tiap tab
-  const tabCounts = useMemo(() => {
-    const counts = { Semua: orders.length };
-    for (const status of ["PAID", "PENDING", "EXPIRED"]) {
-      counts[status] = orders.filter((o) => o.payment_status === status).length;
-    }
-    return counts;
-  }, [orders]);
-
-  return (
-    <div className="min-h-screen bg-[var(--canvas)]">
-      {/* --- Header Admin --- */}
-      <header className="border-b border-[var(--line)] bg-[var(--paper)] px-4 py-5">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3">
-          <div>
-            <h1 className="font-display text-xl font-semibold text-[var(--ink)]">
-              Dashboard Admin
-            </h1>
-            <p className="text-xs text-[var(--muted)]">
-              {storeInfo.store_name} — {storeInfo.store_slug}
-            </p>
-          </div>
-          <Link
-            href="/admin/produk/baru"
-            className="flex items-center gap-1.5 rounded-md bg-[var(--marigold)] px-4 py-2 text-sm font-semibold text-[var(--ink)] shadow-sm hover:brightness-95"
-          >
-            <Plus size={15} /> Tambah Produk Baru
-          </Link>
-        </div>
-      </header>
-
-      <main className="mx-auto max-w-6xl space-y-8 px-4 py-6">
-        {/* --- Kartu Metrik --- */}
-        <section className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <MetricCard
-            icon={<Wallet size={18} />}
-            label="Total Omset"
-            value={formatRupiah(analyticsSummary.total_revenue)}
-            hint="Dari pesanan berstatus PAID"
-          />
-          <MetricCard
-            icon={<CheckCircle2 size={18} />}
-            label="Transaksi Berhasil"
-            value={analyticsSummary.total_transactions}
-            hint="Total pesanan PAID"
-          />
-          <TopProductsCard products={analyticsSummary.product_sales} />
-        </section>
-
-        {/* --- Tabel Riwayat Pesanan --- */}
-        <section className="space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 className="font-display text-sm font-semibold uppercase tracking-wide text-[var(--muted)]">
-              Riwayat Pesanan {loading && <span className="text-xs text-blue-500 lowercase">(Memuat...)</span>}
-            </h2>
-
-            <div className="relative">
-              <Search
-                size={14}
-                className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--muted)]"
-              />
-              <input
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Cari nama pembeli / ID pesanan"
-                className="w-64 rounded-md border border-[var(--line)] bg-[var(--paper)] py-1.5 pl-8 pr-3 text-xs focus:outline-none focus:ring-2 focus:ring-[var(--marigold)]"
-              />
-            </div>
-          </div>
-
-          <div className="flex gap-1.5 overflow-x-auto pb-1">
-            {STATUS_TABS.map((tab) => (
-              <button
-                key={tab}
-                type="button"
-                onClick={() => setActiveTab(tab)}
-                className={`whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${activeTab === tab
-                    ? "border-[var(--ink)] bg-[var(--ink)] text-white"
-                    : "border-[var(--line)] bg-[var(--paper)] text-[var(--muted)]"
-                  }`}
-              >
-                {tab} {tabCounts[tab] !== undefined && `(${tabCounts[tab]})`}
-              </button>
-            ))}
-          </div>
-
-          <div className="overflow-x-auto rounded-lg border border-[var(--line)] bg-[var(--paper)]">
-            <table className="w-full min-w-[820px] text-left text-sm">
-              <thead>
-                <tr className="border-b border-[var(--line)] text-[11px] uppercase tracking-wide text-[var(--muted)]">
-                  <th className="px-4 py-3 font-medium">ID Pesanan</th>
-                  <th className="px-4 py-3 font-medium">Waktu</th>
-                  <th className="px-4 py-3 font-medium">Pembeli</th>
-                  <th className="px-4 py-3 font-medium">No. HP</th>
-                  <th className="px-4 py-3 font-medium">Item</th>
-                  <th className="px-4 py-3 font-medium">Total</th>
-                  <th className="px-4 py-3 font-medium">Status</th>
-                  <th className="px-4 py-3 font-medium">Sheets</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredOrders.map((order) => (
-                  <tr
-                    key={order.order_id}
-                    className="border-b border-[var(--line)] last:border-0 hover:bg-[var(--canvas)]/60"
-                  >
-                    <td className="px-4 py-3 font-mono text-xs text-[var(--ink)]">
-                      {order.order_id}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-[var(--muted)]">
-                      {formatDateTime(order.created_at)}
-                    </td>
-                    <td className="px-4 py-3 text-[var(--ink)]">{order.customer_name}</td>
-                    <td className="px-4 py-3 font-mono text-xs text-[var(--muted)]">
-                      {order.customer_phone}
-                    </td>
-                    <td
-                      className="max-w-[220px] truncate px-4 py-3 text-xs text-[var(--muted)]"
-                      title={itemsSummary(order.items)}
-                    >
-                      {itemsSummary(order.items)}
-                    </td>
-                    <td className="px-4 py-3 font-mono text-[var(--ink)]">
-                      {formatRupiah(order.total_amount)}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${STATUS_STYLE[order.payment_status] ||
-                          "bg-[var(--muted)]/10 text-[var(--muted)]"
-                          }`}
-                      >
-                        {order.payment_status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      {order.synced_to_sheets ? (
-                        <span className="flex items-center gap-1 text-xs text-[var(--pine)]">
-                          <CloudUpload size={14} /> Tersinkron
-                        </span>
-                      ) : (
-                        <span className="flex items-center gap-1 text-xs text-[var(--muted)]">
-                          <CloudOff size={14} /> Menunggu
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-
-                {!loading && filteredOrders.length === 0 && (
-                  <tr>
-                    <td colSpan={8} className="px-4 py-10 text-center text-sm text-[var(--muted)]">
-                      Tidak ada pesanan yang cocok di database.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      </main>
-    </div>
-  );
+  const activeName = profiles.find((profile) => profile.id === activeId)?.name;
+  return <div className="min-h-screen bg-[var(--canvas)] text-[var(--ink)]">
+    <header className="border-b border-[var(--line)] bg-[var(--paper)] px-4 py-5"><div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4"><div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">TokoSedes / Admin</p><h1 className="mt-1 font-display text-2xl font-semibold">Store control center</h1></div><div className="flex gap-2"><Link href="/" target="_blank" className="flex items-center gap-2 rounded-md border border-[var(--line)] px-3 py-2 text-sm"><ExternalLink size={15} /> Lihat toko</Link><button type="button" onClick={() => { setCreateError(""); setShowCreate(true); }} className="flex items-center gap-2 rounded-md bg-[var(--marigold)] px-3 py-2 text-sm font-semibold"><Plus size={16} /> Toko baru</button></div></div></header>
+    <main className="mx-auto flex max-w-6xl flex-col gap-8 px-4 py-6">
+      {profilesError && <div role="alert" className="rounded-md border border-[var(--brick)] bg-[var(--paper)] px-4 py-3 text-sm text-[var(--brick)]">{profilesError}</div>}
+      <section><div className="mb-3 flex items-end justify-between"><div><p className="text-xs uppercase tracking-[0.05em] text-[var(--muted)]">Profil toko</p><h2 className="font-display text-xl font-semibold">Pilih workspace aktif</h2></div><span className="text-xs text-[var(--muted)]">{profiles.length} profil</span></div>{profiles.length === 0 ? <div className="flex min-h-56 flex-col items-center justify-center rounded-lg border border-dashed border-[var(--outline-variant)] bg-[var(--paper)] p-8 text-center"><div className="mb-4 flex size-12 items-center justify-center rounded-md bg-[var(--canvas)]"><Store size={22} /></div><h3 className="font-display text-lg font-semibold">Belum ada toko</h3><p className="mt-2 max-w-sm text-sm leading-6 text-[var(--muted)]">Buat store profile pertama untuk mulai mengatur katalog, checkout, dan analytics.</p><button type="button" onClick={() => setShowCreate(true)} className="mt-5 flex items-center gap-2 rounded-md bg-[var(--ink)] px-4 py-2 text-sm font-semibold text-[var(--paper)]"><Plus size={16} /> Buat toko pertama</button></div> : <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{profiles.map((profile) => <article key={profile.id} className={`rounded-lg border bg-[var(--paper)] p-4 ${profile.id === activeId ? "border-[var(--ink)] shadow-sm" : "border-[var(--line)]"}`}><div className="flex items-start justify-between gap-3"><div className="flex items-center gap-3"><div className="flex size-10 items-center justify-center rounded-md bg-[var(--canvas)]"><Store size={18} /></div><div><div className="flex flex-col gap-1"><Link href={`/admin/orders?storeId=${encodeURIComponent(profile.id)}`} className="font-semibold underline-offset-4 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--marigold)]">{profile.name}</Link><Link href={`/admin/produk/baru?storeId=${encodeURIComponent(profile.id)}`} className="text-xs text-[var(--muted)] underline-offset-4 hover:underline">Kelola toko</Link></div><p className="font-mono text-[11px] text-[var(--muted)]">{profile.id}</p></div></div><button type="button" aria-label={`Toggle ${profile.name}`} disabled={saving} onClick={() => toggleProfile(profile)} className={`relative h-6 w-11 rounded-full ${profile.enabled ? "bg-[var(--pine)]" : "bg-[var(--muted)]"}`}><span className={`absolute top-1 size-4 rounded-full bg-[var(--paper)] transition-transform ${profile.enabled ? "translate-x-6" : "translate-x-1"}`} /></button></div><div className="mt-4 flex items-center justify-between text-xs"><span className={profile.enabled ? "text-[var(--pine)]" : "text-[var(--muted)]"}>{profile.enabled ? "ON • aktif" : "OFF • nonaktif"}</span><button type="button" disabled={!profile.enabled || saving} onClick={() => setActiveProfile(profile.id)} className="font-semibold underline disabled:opacity-40">Gunakan</button></div></article>)}</div>}</section>
+      <section className="flex flex-col gap-4"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs uppercase tracking-[0.05em] text-[var(--muted)]">Analytics</p><h2 className="font-display text-xl font-semibold">{activeName || (profiles.length ? "Pilih profil toko" : "Belum ada data")}</h2></div><div className="flex flex-wrap gap-2"><select aria-label="Rentang waktu" value={range} onChange={(e) => setRange(e.target.value)} className="rounded-md border border-[var(--line)] bg-[var(--paper)] px-3 py-2 text-xs"><option value="all">Semua waktu</option><option value="today">Hari ini</option><option value="yesterday">Kemarin</option></select><button type="button" disabled={!filtered.length} onClick={downloadCsv} className="flex items-center gap-2 rounded-md border border-[var(--line)] bg-[var(--paper)] px-3 py-2 text-xs font-semibold disabled:opacity-40"><Download size={14} /> CSV</button></div></div><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><Metric icon={<Wallet size={17} />} label="Revenue" value={money(metrics.revenue)} /><Metric icon={<TrendingUp size={17} />} label="Net profit" value={money(metrics.revenue - metrics.hpp)} /><Metric label="Pembeli" value={metrics.buyers} /><Metric label="PAID / gagal" value={`${metrics.paid} / ${metrics.failed}`} /></div>{profiles.length > 0 && <><div className="flex flex-wrap gap-2"><div className="relative min-w-64 flex-1"><Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted)]" /><input aria-label="Cari pesanan" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Cari pembeli, WhatsApp, ID pesanan" className="w-full rounded-md border border-[var(--line)] bg-[var(--paper)] py-2 pl-9 pr-3 text-sm" /></div>{STATUS_TABS.map((item) => <button type="button" key={item} onClick={() => setStatus(item)} className={`rounded-full border px-3 py-2 text-xs ${status === item ? "border-[var(--ink)] bg-[var(--ink)] text-[var(--paper)]" : "border-[var(--line)] bg-[var(--paper)] text-[var(--muted)]"}`}>{item}</button>)}</div><div className="overflow-x-auto rounded-lg border border-[var(--line)] bg-[var(--paper)]"><table className="w-full min-w-[680px] text-left text-sm"><thead className="border-b border-[var(--line)] text-xs uppercase tracking-wide text-[var(--muted)]"><tr><th className="px-4 py-3">ID pesanan</th><th className="px-4 py-3">Waktu</th><th className="px-4 py-3">Pembeli</th><th className="px-4 py-3">Total</th><th className="px-4 py-3">Status</th></tr></thead><tbody>{loading ? <tr><td colSpan="5" className="px-4 py-8 text-center text-[var(--muted)]">Memuat pesanan...</td></tr> : filtered.length ? filtered.map((order) => <tr key={order.order_id} className="border-b border-[var(--line)] last:border-0 hover:bg-[var(--canvas)]"><td className="px-4 py-3 font-mono text-xs">{order.order_id}</td><td className="px-4 py-3 text-xs text-[var(--muted)]">{dateText(order.created_at)}</td><td className="px-4 py-3">{order.customer_name || "-"}</td><td className="px-4 py-3 font-mono">{money(order.total_amount)}</td><td className="px-4 py-3 text-xs font-semibold">{order.payment_status || "-"}</td></tr>) : <tr><td colSpan="5" className="px-4 py-8 text-center text-[var(--muted)]">Belum ada pesanan pada filter ini.</td></tr>}</tbody></table></div></>}</section>
+    </main>
+    {showCreate && <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--ink)]/40 p-4" role="presentation"><form onSubmit={handleCreate} className="flex w-full max-w-sm flex-col gap-4 rounded-xl border border-[var(--line)] bg-[var(--paper)] p-5 shadow-xl" role="dialog" aria-modal="true" aria-labelledby="create-title"><div className="flex items-center justify-between"><h2 id="create-title" className="font-display text-lg font-semibold">Buat profil toko</h2><button type="button" onClick={() => setShowCreate(false)} aria-label="Tutup"><X size={18} /></button></div><label htmlFor="store-name" className="text-sm font-semibold">Nama toko</label><input id="store-name" autoFocus required minLength={2} maxLength={80} value={customName} onChange={(e) => setCustomName(e.target.value)} placeholder="Contoh: Toko Sedes" className="rounded-md border border-[var(--line)] px-3 py-2 text-sm" />{createError && <p role="alert" className="text-sm text-[var(--brick)]">{createError}</p>}<button disabled={saving} className="rounded-md bg-[var(--marigold)] px-4 py-2 text-sm font-semibold disabled:opacity-60">{saving ? "Menyimpan..." : "Buat & aktifkan"}</button></form></div>}
+  </div>;
+}
+export default function AdminDashboardPage() {
+  return <AdminAuthGate><AdminDashboardContent /></AdminAuthGate>;
 }
 
-function MetricCard({ icon, label, value, hint }) {
-  return (
-    <div className="rounded-lg border border-[var(--line)] bg-[var(--paper)] p-4">
-      <div className="flex items-center gap-2 text-[var(--muted)]">
-        {icon}
-        <span className="text-xs font-medium uppercase tracking-wide">{label}</span>
-      </div>
-      <p className="mt-2 font-mono text-2xl font-semibold text-[var(--ink)]">{value}</p>
-      {hint && <p className="mt-1 text-[11px] text-[var(--muted)]">{hint}</p>}
-    </div>
-  );
-}
+function Metric({ icon, label, value }) { return <div className="rounded-lg border border-[var(--line)] bg-[var(--paper)] p-4"><div className="flex items-center gap-2 text-xs uppercase tracking-wide text-[var(--muted)]">{icon}{label}</div><p className="mt-2 font-mono text-xl font-semibold">{value}</p></div>; }
 
-function TopProductsCard({ products }) {
-  const maxQty = Math.max(...(products || []).map((p) => p.qty), 1);
+// Analytics are intentionally disabled until a store profile exists; no mock data is shown.
 
-  return (
-    <div className="rounded-lg border border-[var(--line)] bg-[var(--paper)] p-4">
-      <div className="flex items-center gap-2 text-[var(--muted)]">
-        <TrendingUp size={18} />
-        <span className="text-xs font-medium uppercase tracking-wide">Produk Terlaris</span>
-      </div>
-
-      {(!products || products.length === 0) ? (
-        <p className="mt-4 text-xs text-[var(--muted)]">Belum ada data penjualan.</p>
-      ) : (
-        <ul className="mt-3 space-y-2">
-          {products.map((p) => (
-            <li key={p.name}>
-              <div className="mb-1 flex items-center justify-between text-xs">
-                <span className="truncate pr-2 text-[var(--ink)]">{p.name}</span>
-                <span className="shrink-0 font-mono text-[var(--muted)]">{p.qty} terjual</span>
-              </div>
-              <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--canvas)]">
-                <div
-                  className="h-full rounded-full bg-[var(--marigold)] transition-all duration-500"
-                  style={{ width: `${(p.qty / maxQty) * 100}%` }}
-                />
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
+// end

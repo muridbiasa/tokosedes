@@ -4,8 +4,9 @@ import { GripVertical, Trash2, Plus, X } from "lucide-react";
 
 const FIELD_TYPES = [
   { value: "text", label: "Teks singkat" },
-  { value: "textarea", label: "Teks panjang" },
-  { value: "number", label: "Angka" },
+  { value: "textarea", label: "Teks panjang / paragraf" },
+  { value: "phone", label: "Nomor telepon" },
+  { value: "info", label: "Info text (read-only)" },
   { value: "dropdown", label: "Dropdown" },
   { value: "radio", label: "Pilihan ganda" },
   { value: "checkbox", label: "Centang (multi-pilih)" },

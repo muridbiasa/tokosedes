@@ -1,12 +1,19 @@
-```
-# Dependencies
-node_modules/
+# dependencies
+/node_modules
 
-# Environment
+# next.js
+/.next
+/out
+
+# production
+/build
+
+# environment & secrets
 .env
-.env.local
-.env.
+.env.*
+!.env.example
 
-# Editors
-.vscode/
-```
+# misc
+.DS_Store
+*.log
+/.vercel

@@ -16,7 +16,9 @@ import {
 } from "lucide-react";
 import DriveImage from "@/components/shared/DriveImage";
 import { mockCustomFields } from "@/lib/mockData";
-import { useStoreSettings, getGridClasses } from "@/hooks/useStoreSettings";
+import { useStoreSettings } from "@/hooks/useStoreSettings";
+import { getGridClasses, isUnlimitedStock, stockAllows, safePhone, isValidPhone } from "@/lib/storeProfiles";
+import ProductDetailModal from "@/components/ProductDetailModal";
 
 /**
  * app/page.js
@@ -36,7 +38,7 @@ function cartKey(productId, sku) {
 
 export default function StorefrontPage() {
   // HOOK: Fetch store settings from Firestore
-  const { settings, loading: loadingSettings } = useStoreSettings();
+  const { settings, storeId, loading: loadingSettings } = useStoreSettings();
   
   // STATE BARU: Menampung data produk dari Firebase
   const [products, setProducts] = useState([]);
@@ -46,6 +48,11 @@ export default function StorefrontPage() {
   const [cart, setCart] = useState({});
   // varian yang sedang dipilih per produk di kartu (belum tentu masuk keranjang)
   const [selectedVariant, setSelectedVariant] = useState({});
+  
+  // STATE BARU: Modal product detail
+  const [modalOpen, setModalOpen] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState(null);
+  
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [customFieldValues, setCustomFieldValues] = useState({});
@@ -60,8 +67,13 @@ export default function StorefrontPage() {
   // MENGAMBIL DATA KATALOG DARI FIRESTORE
   useEffect(() => {
     async function fetchProducts() {
+      if (!storeId) {
+        setProducts([]);
+        setLoadingProducts(false);
+        return;
+      }
       try {
-        const querySnapshot = await getDocs(collection(db, 'stores', 'tokosedes-prod', 'products'));
+        const querySnapshot = await getDocs(collection(db, 'stores', storeId, 'products'));
         const items = [];
         querySnapshot.forEach((doc) => {
           const data = doc.data();
@@ -86,7 +98,7 @@ export default function StorefrontPage() {
       }
     }
     fetchProducts();
-  }, []);
+  }, [storeId]);
 
   function getSelectedVariant(product) {
     if (!product.has_variants) return null;
@@ -94,8 +106,12 @@ export default function StorefrontPage() {
     return product.variants[index];
   }
 
-  function addToCart(product) {
-    const variant = getSelectedVariant(product);
+  function addToCart(product, variantIndex = null, qty = 1) {
+    // Support both old API (no args) and new modal API (with variantIndex and qty)
+    const variant = variantIndex !== null 
+      ? product.variants[variantIndex] 
+      : getSelectedVariant(product);
+    
     const sku = variant?.sku || product.product_id;
     const price = variant ? variant.price : product.base_price;
     const stock = variant ? variant.stock : product.base_stock;
@@ -104,7 +120,8 @@ export default function StorefrontPage() {
 
     setCart((prev) => {
       const existingQty = prev[key]?.qty || 0;
-      if (existingQty + 1 > stock) return prev; // jaga-jaga, tombol + juga sudah disabled saat stok habis
+      const newQty = existingQty + qty;
+      if (!stockAllows(stock, newQty)) return prev;
       return {
         ...prev,
         [key]: {
@@ -113,7 +130,7 @@ export default function StorefrontPage() {
           sku,
           name,
           price,
-          qty: existingQty + 1,
+          qty: newQty,
           maxStock: stock,
         },
       };
@@ -131,7 +148,7 @@ export default function StorefrontPage() {
         delete next[key];
         return next;
       }
-      if (nextQty > item.maxStock) return prev; // edge case 5.1: cegah melebihi stok real-time
+      if (!stockAllows(item.maxStock, nextQty)) return prev;
       return { ...prev, [key]: { ...item, qty: nextQty } };
     });
   }
@@ -145,8 +162,9 @@ export default function StorefrontPage() {
     const errors = {};
     if (!customerName.trim()) errors.customerName = "Nama wajib diisi";
     if (!customerPhone.trim()) errors.customerPhone = "No. WhatsApp wajib diisi";
+    else if (!isValidPhone(customerPhone)) errors.customerPhone = "Gunakan 8-15 digit angka";
 
-    for (const field of mockCustomFields) {
+    for (const field of (settings?.custom_form_fields || mockCustomFields)) {
       if (field.is_required && !customFieldValues[field.field_id]) {
         errors[field.field_id] = "Wajib diisi";
       }
@@ -173,7 +191,7 @@ export default function StorefrontPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          storeId: 'tokosedes-prod',
+          storeId,
           customerName,
           customerPhone,
           items: cartItems.map(item => ({
@@ -255,7 +273,7 @@ export default function StorefrontPage() {
                 Toko Sedang Tutup
               </h1>
               <p className="text-sm text-[var(--muted)] max-w-md mx-auto">
-                {settings?.description || "Maaf, toko sedang tidak menerima pesanan saat ini. Silakan kembali lagi nanti."}
+                {settings?.closedMessage || "Maaf, toko sedang tidak menerima pesanan saat ini. Silakan kembali lagi nanti."}
               </p>
               <div className="mt-6 inline-flex items-center gap-2 rounded-full bg-[var(--brick)]/10 px-4 py-2 text-xs font-medium text-[var(--brick)]">
                 <span className="h-2 w-2 rounded-full bg-[var(--brick)] animate-pulse" />
@@ -315,7 +333,10 @@ export default function StorefrontPage() {
                 onSelectVariant={(index) =>
                   setSelectedVariant((prev) => ({ ...prev, [product.product_id]: index }))
                 }
-                onAddToCart={() => addToCart(product)}
+                onOpenModal={() => {
+                  setSelectedProduct(product);
+                  setModalOpen(true);
+                }}
                 themeColor={settings?.themeColor}
               />
             ))}
@@ -370,7 +391,7 @@ export default function StorefrontPage() {
             )}
           </div>
 
-          {mockCustomFields
+          {(settings?.custom_form_fields || mockCustomFields)
             .slice()
             .sort((a, b) => a.order - b.order)
             .map((field) => (
@@ -424,7 +445,7 @@ export default function StorefrontPage() {
                       <button
                         type="button"
                         onClick={() => changeQty(item.key, 1)}
-                        disabled={item.qty >= item.maxStock}
+                        disabled={!isUnlimitedStock(item.maxStock) && item.qty >= item.maxStock}
                         className="flex h-6 w-6 items-center justify-center rounded-full border border-[var(--line)] text-[var(--ink)] disabled:opacity-30"
                         aria-label="Tambah"
                       >
@@ -467,18 +488,30 @@ export default function StorefrontPage() {
           onDone={resetAfterSuccess}
         />
       )}
+
+      {/* --- Product Detail Modal (Phase 2) --- */}
+      <ProductDetailModal
+        product={selectedProduct}
+        isOpen={modalOpen}
+        onClose={() => setModalOpen(false)}
+        onAddToCart={(product, variantIndex, qty) => addToCart(product, variantIndex, qty)}
+        themeColor={settings?.themeColor}
+      />
     </div>
   );
 }
 
-function ProductCard({ product, selectedIndex, onSelectVariant, onAddToCart, themeColor }) {
+function ProductCard({ product, selectedIndex, onSelectVariant, onOpenModal, themeColor }) {
   const variant = product.has_variants ? product.variants[selectedIndex] : null;
   const price = variant ? variant.price : product.base_price;
   const stock = variant ? variant.stock : product.base_stock;
-  const soldOut = stock <= 0;
+  const soldOut = !isUnlimitedStock(stock) && stock <= 0;
 
   return (
-    <div className="overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--paper)]">
+    <div 
+      className="overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--paper)] transition-shadow hover:shadow-md cursor-pointer"
+      onClick={onOpenModal}
+    >
       <div className="aspect-square w-full bg-[var(--canvas)]">
         <DriveImage
           src={product.images?.[0]}
@@ -503,13 +536,16 @@ function ProductCard({ product, selectedIndex, onSelectVariant, onAddToCart, the
         {product.has_variants && (
           <div className="flex flex-wrap gap-1.5">
             {product.variants.map((v, i) => {
-              const vSoldOut = v.stock <= 0;
+              const vSoldOut = !isUnlimitedStock(v.stock) && v.stock <= 0;
               return (
                 <button
                   key={v.sku}
                   type="button"
                   disabled={vSoldOut}
-                  onClick={() => onSelectVariant(i)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSelectVariant(i);
+                  }}
                   className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
                     i === selectedIndex
                       ? "border-[var(--ink)] bg-[var(--ink)] text-white"
@@ -530,18 +566,13 @@ function ProductCard({ product, selectedIndex, onSelectVariant, onAddToCart, the
         {soldOut ? (
           <p className="text-xs font-medium text-[var(--brick)]">Stok habis</p>
         ) : (
-          <p className="text-[11px] text-[var(--muted)]">Sisa stok: {stock}</p>
+          <p className="text-[11px] text-[var(--muted)]">{isUnlimitedStock(stock) ? "Stok tersedia" : `Sisa stok: ${stock}`}</p>
         )}
 
-        <button
-          type="button"
-          disabled={soldOut}
-          onClick={onAddToCart}
-          className="flex w-full items-center justify-center gap-1.5 rounded-md py-2 text-xs font-semibold text-white transition-opacity disabled:cursor-not-allowed disabled:opacity-30"
-          style={{ backgroundColor: themeColor || 'var(--ink)' }}
-        >
-          <Plus size={13} /> Tambah ke Keranjang
-        </button>
+        {/* Removed direct Add to Cart button - user must click card to open modal */}
+        <div className="flex items-center justify-center gap-1.5 rounded-md py-2 text-xs font-medium text-[var(--muted)] bg-[var(--canvas)]">
+          <ShoppingCart size={13} /> Klik untuk detail
+        </div>
       </div>
     </div>
   );
