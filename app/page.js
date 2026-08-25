@@ -289,8 +289,8 @@ export default function StorefrontPage() {
           ) : (
             // STORE OPEN - Normal Header
             <div className="flex items-center gap-2">
-              <h1 
-                className="font-display text-xl font-semibold text-[var(--ink)]"
+              <h1
+                className="text-xl font-semibold"
                 style={{ color: settings?.themeColor || 'var(--ink)' }}
               >
                 {settings?.storeName}

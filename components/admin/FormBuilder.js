@@ -1,10 +1,9 @@
 "use client";
 
-import { useState } from "react";
-import { AlertTriangle, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import FormFieldEditor from "./FormFieldEditor";
 import VariantManager from "./VariantManager";
-import DriveImage from "../shared/DriveImage";
+import CloudinaryImageUpload from "./CloudinaryImageUpload";
 
 function newFieldId() {
   return `f_${Math.random().toString(36).slice(2, 9)}`;
@@ -35,8 +34,6 @@ export default function FormBuilder({
   onSave,
   storeId,
 }) {
-  const [imageWarning, setImageWarning] = useState(false);
-
   const updateProduct = (patch) => onProductChange({ ...product, ...patch });
 
   const addField = () => {
@@ -101,35 +98,12 @@ export default function FormBuilder({
 
         <div className="space-y-2">
           <label className="text-xs font-medium text-[var(--muted)]">
-            Link gambar utama (Google Drive atau URL gambar)
+            Gambar produk — unggah berkas (otomatis dikonversi ke WebP maks 1600px)
           </label>
-          <div className="flex items-center gap-3">
-            <div className="h-16 w-16 overflow-hidden rounded border border-[var(--line)]">
-              <DriveImage
-                src={product.images[0]}
-                alt={product.name}
-                className="h-full w-full object-cover"
-                onStatusChange={(status) =>
-                  setImageWarning(status === "error" && !!product.images[0])
-                }
-              />
-            </div>
-            <input
-              type="text"
-              value={product.images[0] || ""}
-              onChange={(e) =>
-                updateProduct({ images: [e.target.value, ...product.images.slice(1)] })
-              }
-              placeholder="https://drive.google.com/file/d/..."
-              className="flex-1 rounded-md border border-[var(--line)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--marigold)]"
-            />
-          </div>
-          {imageWarning && (
-            <p className="flex items-center gap-1.5 text-xs text-[var(--brick)]">
-              <AlertTriangle size={13} />
-              Akses file Drive belum diset Publik (&quot;Anyone with the link&quot;).
-            </p>
-          )}
+          <CloudinaryImageUpload
+            value={product.images}
+            onChange={(images) => updateProduct({ images })}
+          />
         </div>
       </section>
 

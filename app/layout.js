@@ -10,11 +10,20 @@ export default function RootLayout({ children }) {
   return (
     <html lang="id">
       <head>
-        {/* 
-          Meta CSP dihapus — CSP sudah dihandle di next.config.js via HTTP header.
-          Meta tag CSP di sini justru OVERRIDE header dan lebih restrictive,
-          itulah kenapa app.midtrans.com kena block meski sudah ada di next.config.js.
+        {/*
+          Meta CSP dihapus — CSP sudah dihandle di vercel.json via HTTP header.
         */}
+        {/*
+          Font dimuat via <link> di head (BUKAN @import di globals.css):
+          @import yang diletakkan setelah rule Tailwind diabaikan browser,
+          sehingga sebelumnya semua pilihan font jatuh ke fallback Inter.
+        */}
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600&family=Montserrat:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Poppins:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap"
+          rel="stylesheet"
+        />
       </head>
       <body>
         {children}
