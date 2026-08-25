@@ -18,6 +18,12 @@ import DriveImage from "@/components/shared/DriveImage";
 import { useStoreSettings } from "@/hooks/useStoreSettings";
 import { getGridClasses, isUnlimitedStock, stockAllows, isValidPhone } from "@/lib/storeProfiles";
 import ProductDetailModal from "@/components/ProductDetailModal";
+// UI super ringan: shadcn/ui (lokal) + auto-animate (~2KB)
+import { useAutoAnimate } from "@formkit/auto-animate/react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Card, CardContent } from "@/components/ui/card";
 
 /**
  * app/page.js
@@ -79,6 +85,11 @@ export default function StorefrontPage() {
   const [formErrors, setFormErrors] = useState({});
   const [cartSheetOpen, setCartSheetOpen] = useState(false);
   const [checkoutState, setCheckoutState] = useState("idle"); // idle | confirming | processing | success
+
+  // Transisi mulus saat item masuk/keluar DOM — murni animasi CSS (WAAPI),
+  // tanpa re-render tambahan; hemat memori untuk perangkat low-end.
+  const [animateProductList] = useAutoAnimate();
+  const [animateCartList] = useAutoAnimate();
 
   const cartItems = useMemo(() => Object.values(cart), [cart]);
   const totalQty = cartItems.reduce((sum, i) => sum + i.qty, 0);
@@ -375,7 +386,7 @@ export default function StorefrontPage() {
             Belum ada produk di database Firestore.
           </div>
         ) : (
-          <div className={`grid gap-4 ${getGridClasses(settings?.catalogGridSize)}`}>
+          <div ref={animateProductList} className={`grid gap-4 ${getGridClasses(settings?.catalogGridSize)}`}>
             {products.map((product) => (
               <ProductCard
                 key={product.product_id}
@@ -431,20 +442,21 @@ export default function StorefrontPage() {
       {/* --- Sticky Bottom Bar --- */}
       {totalQty > 0 && checkoutState === "idle" && (
         <div className="fixed inset-x-0 bottom-0 z-20 border-t border-[var(--line)] bg-[var(--paper)] shadow-[0_-4px_16px_rgba(0,0,0,0.06)]">
-          <button
+          <Button
             type="button"
+            variant="ghost"
             onClick={() => setCartSheetOpen((o) => !o)}
-            className="flex w-full items-center justify-between px-4 py-2 text-xs text-[var(--muted)]"
+            className="flex w-full items-center justify-between rounded-none px-4 py-2 text-xs font-normal text-[var(--muted)] transition-all duration-200 active:scale-[0.99] sm:w-auto"
           >
             <span className="flex items-center gap-1">
               <ShoppingCart size={13} /> {totalQty} item di keranjang
             </span>
             {cartSheetOpen ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
-          </button>
+          </Button>
 
           {cartSheetOpen && (
             <div className="max-h-64 overflow-y-auto border-t border-dashed border-[var(--line)] px-4 py-3">
-              <ul className="space-y-2">
+              <ul ref={animateCartList} className="space-y-2">
                 {cartItems.map((item) => (
                   <li key={item.key} className="flex items-center justify-between gap-2">
                     <div className="min-w-0">
@@ -454,24 +466,28 @@ export default function StorefrontPage() {
                       </p>
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
-                      <button
+                      <Button
                         type="button"
+                        variant="outline"
+                        size="icon"
                         onClick={() => changeQty(item.key, -1)}
-                        className="flex h-6 w-6 items-center justify-center rounded-full border border-[var(--line)] text-[var(--ink)]"
+                        className="h-6 w-6 rounded-full p-0 transition-all duration-200 active:scale-95"
                         aria-label="Kurangi"
                       >
                         <Minus size={12} />
-                      </button>
+                      </Button>
                       <span className="w-4 text-center text-xs font-mono">{item.qty}</span>
-                      <button
+                      <Button
                         type="button"
+                        variant="outline"
+                        size="icon"
                         onClick={() => changeQty(item.key, 1)}
                         disabled={!isUnlimitedStock(item.maxStock) && item.qty >= item.maxStock}
-                        className="flex h-6 w-6 items-center justify-center rounded-full border border-[var(--line)] text-[var(--ink)] disabled:opacity-30"
+                        className="h-6 w-6 rounded-full p-0 transition-all duration-200 active:scale-95"
                         aria-label="Tambah"
                       >
                         <Plus size={12} />
-                      </button>
+                      </Button>
                     </div>
                   </li>
                 ))}
@@ -486,13 +502,13 @@ export default function StorefrontPage() {
                 {formatRupiah(totalAmount)}
               </p>
             </div>
-            <button
+            <Button
               type="button"
               onClick={handleCheckout}
-              className="rounded-md bg-[var(--marigold)] px-6 py-2.5 text-sm font-semibold text-[var(--ink)] shadow-sm hover:brightness-95"
+              className="px-6 py-2.5 text-sm font-semibold text-[var(--ink)] shadow-sm transition-all duration-200 hover:brightness-95 active:scale-95 sm:w-auto"
             >
               Bayar Sekarang
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -529,9 +545,9 @@ function ProductCard({ product, selectedIndex, onSelectVariant, onOpenModal, the
   const soldOut = !isUnlimitedStock(stock) && stock <= 0;
 
   return (
-    <div 
-      className="overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--paper)] transition-shadow hover:shadow-md cursor-pointer"
+    <Card
       onClick={onOpenModal}
+      className="cursor-pointer overflow-hidden border-[var(--line)] shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
     >
       <div className="aspect-square w-full bg-[var(--canvas)]">
         <DriveImage
@@ -541,13 +557,13 @@ function ProductCard({ product, selectedIndex, onSelectVariant, onOpenModal, the
         />
       </div>
 
-      <div className="space-y-2 p-3">
+      <CardContent className="space-y-2 p-3 pt-3">
         <div>
           <h3 className="font-display text-sm font-semibold text-[var(--ink)]">{product.name}</h3>
           <p className="line-clamp-2 text-xs text-[var(--muted)]">{product.description}</p>
         </div>
 
-        <p 
+        <p
           className="font-mono text-sm font-semibold"
           style={{ color: themeColor || 'var(--ink)' }}
         >
@@ -567,7 +583,7 @@ function ProductCard({ product, selectedIndex, onSelectVariant, onOpenModal, the
                     e.stopPropagation();
                     onSelectVariant(i);
                   }}
-                  className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                  className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition-all duration-200 active:scale-95 ${
                     i === selectedIndex
                       ? "border-[var(--ink)] bg-[var(--ink)] text-white"
                       : "border-[var(--line)] text-[var(--ink)]"
@@ -594,8 +610,8 @@ function ProductCard({ product, selectedIndex, onSelectVariant, onOpenModal, the
         <div className="flex items-center justify-center gap-1.5 rounded-md py-2 text-xs font-medium text-[var(--muted)] bg-[var(--canvas)]">
           <ShoppingCart size={13} /> Klik untuk detail
         </div>
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -603,6 +619,10 @@ function CustomFieldInput({ field, value, error, onChange }) {
   const base = `w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--marigold)] ${
     error ? "border-[var(--brick)]" : "border-[var(--line)]"
   }`;
+  // Kelas error untuk <Input> shadcn (menimpa border-input bila invalid).
+  const inputErrorClass = error
+    ? "border-[var(--brick)] focus-visible:ring-[var(--brick)]"
+    : undefined;
   // Normalisasi tipe: alias lama/seed (short_text, long_text, tel) dipetakan,
   // sehingga semua tipe hasil konfigurasi admin pasti punya elemen inputnya.
   const type = normalizeFieldType(field.type);
@@ -610,28 +630,30 @@ function CustomFieldInput({ field, value, error, onChange }) {
 
   return (
     <div>
-      <label className="mb-1 block text-xs font-medium text-[var(--ink)]">
+      <Label className="mb-1 block text-xs font-medium text-[var(--ink)]">
         {field.label}
         {field.is_required && <span className="text-[var(--brick)]"> *</span>}
-      </label>
+      </Label>
 
       {type === "text" && (
-        <input
+        <Input
           type="text"
           value={value || ""}
+          aria-invalid={!!error}
           onChange={(e) => onChange(e.target.value)}
-          className={base}
+          className={`transition-all duration-200 ${inputErrorClass || ""}`}
         />
       )}
 
       {type === "phone" && (
-        <input
+        <Input
           type="tel"
           inputMode="numeric"
           placeholder="081234567890"
           value={value || ""}
+          aria-invalid={!!error}
           onChange={(e) => onChange(e.target.value)}
-          className={base}
+          className={`transition-all duration-200 ${inputErrorClass || ""}`}
         />
       )}
 
@@ -645,11 +667,12 @@ function CustomFieldInput({ field, value, error, onChange }) {
       )}
 
       {type === "number" && (
-        <input
+        <Input
           type="number"
           value={value || ""}
+          aria-invalid={!!error}
           onChange={(e) => onChange(e.target.value)}
-          className={base}
+          className={`transition-all duration-200 ${inputErrorClass || ""}`}
         />
       )}
 
@@ -726,14 +749,16 @@ function CheckoutModal({ state, cartItems, totalAmount, customerName, onClose, o
               <h3 className="font-display text-base font-semibold text-[var(--ink)]">
                 Konfirmasi Pesanan
               </h3>
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="icon"
                 onClick={onClose}
-                className="text-[var(--muted)] hover:text-[var(--ink)]"
+                className="h-8 w-8 p-0 transition-all duration-200 active:scale-95"
                 aria-label="Tutup"
               >
                 <X size={18} />
-              </button>
+              </Button>
             </div>
 
             <p className="mb-3 text-xs text-[var(--muted)]">
@@ -765,13 +790,13 @@ function CheckoutModal({ state, cartItems, totalAmount, customerName, onClose, o
               Sistem akan memotong stok secara real-time dan langsung membuka halaman pembayaran resmi Midtrans setelah Anda menekan tombol di bawah ini.
             </p>
 
-            <button
+            <Button
               type="button"
               onClick={onConfirm}
-              className="w-full rounded-md bg-[var(--marigold)] py-2.5 text-sm font-semibold text-[var(--ink)] hover:brightness-95"
+              className="w-full py-2.5 text-sm font-semibold text-[var(--ink)] transition-all duration-200 hover:brightness-95 active:scale-95 sm:w-auto sm:py-2.5"
             >
               Lanjut ke Pembayaran
-            </button>
+            </Button>
           </>
         )}
 
@@ -793,13 +818,13 @@ function CheckoutModal({ state, cartItems, totalAmount, customerName, onClose, o
             <p className="text-xs text-[var(--muted)]">
               Terima kasih! Jika jendela tidak tertutup otomatis, silakan klik tombol selesai.
             </p>
-            <button
+            <Button
               type="button"
               onClick={onDone}
-              className="mt-2 w-full rounded-md bg-[var(--ink)] py-2.5 text-sm font-semibold text-white"
+              className="mt-2 w-full bg-[var(--ink)] py-2.5 text-sm font-semibold text-white transition-all duration-200 hover:bg-[var(--ink)]/90 active:scale-95 sm:w-auto"
             >
               Kembali ke Beranda
-            </button>
+            </Button>
           </div>
         )}
       </div>
