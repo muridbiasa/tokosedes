@@ -20,6 +20,7 @@
 import { NextResponse } from "next/server";
 import { db, FieldValue } from "@/lib/firebase-admin";
 import { snap } from "@/lib/midtrans";
+import { resolveUnlimitedStock } from "@/lib/unlimitedStock";
 
 export const maxDuration = 30;
 
@@ -55,18 +56,21 @@ async function releaseStockForOrder(orderData) {
       if (product.has_variants && Array.isArray(product.variants)) {
         const variantIndex = product.variants.findIndex((v) => v.sku === item.sku);
         if (variantIndex === -1) continue;
+        // Unlimited: stok tidak pernah dipotong → tidak ada yang dikembalikan.
+        if (resolveUnlimitedStock(product, product.variants[variantIndex])) continue;
         const nextVariants = [...product.variants];
         nextVariants[variantIndex] = {
           ...nextVariants[variantIndex],
-          stock: nextVariants[variantIndex].stock + item.qty,
+          stock: Number(nextVariants[variantIndex].stock ?? 0) + item.qty,
         };
         transaction.update(productRef, { variants: nextVariants });
       } else {
-        const newStock = (product.base_stock ?? product.stock ?? 0) + item.qty;
-        transaction.update(productRef, {
-          base_stock: newStock,
-          stock: product.stock !== undefined ? newStock : undefined,
-        });
+        // Unlimited: sama — lewati pengembalian angka stok.
+        if (resolveUnlimitedStock(product, null)) continue;
+        const newStock = Number(product.base_stock ?? product.stock ?? 0) + item.qty;
+        const updateData = { base_stock: newStock };
+        if (product.stock !== undefined) updateData.stock = newStock;
+        transaction.update(productRef, updateData);
       }
     }
   });
@@ -187,20 +191,28 @@ export async function POST(request) {
             );
           }
 
-          if (variant.stock < itemQty) {
+          // PENTING: cek flag "tanpa batas" SEBELUM validasi stok numerik.
+          const isUnlimited = resolveUnlimitedStock(product, variant);
+
+          if (!isUnlimited && Number(variant.stock ?? 0) < itemQty) {
             throw new OrderError(
-              `Maaf, stok ${product.name} - ${variant.name} baru saja habis (tersisa ${variant.stock})`,
+              `Maaf, stok ${product.name} - ${variant.name} baru saja habis (tersisa ${variant.stock ?? 0})`,
               409
             );
           }
 
-          // Kurangi stok varian
-          const nextVariants = [...product.variants];
-          nextVariants[variantIndex] = {
-            ...variant,
-            stock: variant.stock - itemQty,
-          };
-          transaction.update(productRefs[i], { variants: nextVariants });
+          if (isUnlimited) {
+            // Unlimited: JANGAN sentuh angka stok sama sekali — tidak ada
+            // penulisan ke dokumen produk pada transaksi ini.
+          } else {
+            // Kurangi stok varian
+            const nextVariants = [...product.variants];
+            nextVariants[variantIndex] = {
+              ...variant,
+              stock: Number(variant.stock ?? 0) - itemQty,
+            };
+            transaction.update(productRefs[i], { variants: nextVariants });
+          }
 
           resolvedItems.push({
             product_id: productId,
@@ -222,18 +234,24 @@ export async function POST(request) {
             );
           }
 
-          if (baseStock < itemQty) {
+          // PENTING: cek flag "tanpa batas" SEBELUM validasi stok numerik.
+          const isUnlimited = resolveUnlimitedStock(product, null);
+
+          if (!isUnlimited && Number(baseStock) < itemQty) {
             throw new OrderError(
-              `Maaf, stok ${product.name} baru saja habis (tersisa ${baseStock})`,
+              `Maaf, stok ${product.name} baru saja habis (tersisa ${Number(baseStock)})`,
               409
             );
           }
 
-          const newStock = baseStock - itemQty;
-          transaction.update(productRefs[i], {
-            base_stock: newStock,
-            stock: product.stock !== undefined ? newStock : undefined,
-          });
+          if (!isUnlimited) {
+            const newStock = Number(baseStock) - itemQty;
+            // Catatan: field legacy `stock` hanya ikut ditulis bila memang ada
+            // di dokumen — mengirim undefined membuat Firestore melempar error.
+            const updateData = { base_stock: newStock };
+            if (product.stock !== undefined) updateData.stock = newStock;
+            transaction.update(productRefs[i], updateData);
+          }
 
           resolvedItems.push({
             product_id: productId,

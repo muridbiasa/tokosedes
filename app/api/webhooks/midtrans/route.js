@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { db, FieldValue } from "@/lib/firebase-admin";
 import { getServerKey } from "@/lib/midtrans";
 import { appendOrderToSheets } from "@/lib/google-sheets";
+import { resolveUnlimitedStock } from "@/lib/unlimitedStock";
 
 export const maxDuration = 30;
 
@@ -33,9 +34,13 @@ async function releaseStock(orderData) {
       if (product.has_variants && Array.isArray(product.variants)) {
         const variants = [...product.variants]; const variantIndex = variants.findIndex((v) => v.sku === item.sku);
         if (variantIndex < 0) return;
+        // Unlimited: stok tidak pernah dipotong → tidak ada yang dikembalikan.
+        if (resolveUnlimitedStock(product, variants[variantIndex])) return;
         variants[variantIndex] = { ...variants[variantIndex], stock: Number(variants[variantIndex].stock || 0) + Number(item.qty || 0) };
         transaction.update(refs[index], { variants });
-      } else if (!product.unlimited_stock) {
+      } else {
+        // Unlimited: sama — lewati pengembalian angka stok.
+        if (resolveUnlimitedStock(product, null)) return;
         const stock = Number(product.base_stock ?? product.stock ?? 0) + Number(item.qty || 0);
         transaction.update(refs[index], { base_stock: stock, ...(product.stock !== undefined ? { stock } : {}) });
       }
