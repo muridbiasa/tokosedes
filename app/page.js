@@ -15,9 +15,8 @@ import {
   Store,
 } from "lucide-react";
 import DriveImage from "@/components/shared/DriveImage";
-import { mockCustomFields } from "@/lib/mockData";
 import { useStoreSettings } from "@/hooks/useStoreSettings";
-import { getGridClasses, isUnlimitedStock, stockAllows, safePhone, isValidPhone } from "@/lib/storeProfiles";
+import { getGridClasses, isUnlimitedStock, stockAllows, isValidPhone } from "@/lib/storeProfiles";
 import ProductDetailModal from "@/components/ProductDetailModal";
 
 /**
@@ -164,7 +163,7 @@ export default function StorefrontPage() {
     if (!customerPhone.trim()) errors.customerPhone = "No. WhatsApp wajib diisi";
     else if (!isValidPhone(customerPhone)) errors.customerPhone = "Gunakan 8-15 digit angka";
 
-    for (const field of (settings?.custom_form_fields || mockCustomFields)) {
+    for (const field of (settings?.custom_form_fields || [])) {
       if (field.is_required && !customFieldValues[field.field_id]) {
         errors[field.field_id] = "Wajib diisi";
       }
@@ -248,7 +247,14 @@ export default function StorefrontPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[var(--canvas)] pb-28">
+    <div
+      className="min-h-screen bg-[var(--canvas)] pb-28"
+      style={
+        settings?.fontFamily && settings.fontFamily !== "sans-serif"
+          ? { fontFamily: `'${settings.fontFamily}', 'Inter', sans-serif` }
+          : undefined
+      }
+    >
       {/* --- Header Toko --- */}
       <header 
         className="border-b border-[var(--line)] bg-[var(--paper)] px-4 py-6"
@@ -391,7 +397,7 @@ export default function StorefrontPage() {
             )}
           </div>
 
-          {(settings?.custom_form_fields || mockCustomFields)
+          {(settings?.custom_form_fields || [])
             .slice()
             .sort((a, b) => a.order - b.order)
             .map((field) => (

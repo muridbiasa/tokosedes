@@ -34,6 +34,13 @@ export async function POST(request) {
 
   const { storeId, product, fields } = body;
 
+  // Mode EDIT: jika productId dikirim, perbarui dokumen yang sama
+  // (upsert) alih-alih selalu membuat dokumen baru.
+  const productId =
+    typeof body.productId === "string" && body.productId.trim() !== ""
+      ? body.productId.trim()
+      : null;
+
   // Validasi dasar
   if (!storeId) {
     return NextResponse.json(
@@ -53,7 +60,9 @@ export async function POST(request) {
     const storeRef = db.collection("stores").doc(storeId);
 
     // --- 1. Simpan produk ke subkoleksi products ---
-    const productRef = storeRef.collection("products").doc();
+    const productRef = productId
+      ? storeRef.collection("products").doc(productId)
+      : storeRef.collection("products").doc();
 
     // Sanitasi data varian: pastikan setiap varian punya sku unik
     const sanitizedVariants = (product.variants || []).map((v, index) => ({
@@ -77,13 +86,24 @@ export async function POST(request) {
       has_variants: product.has_variants ?? false,
       base_price: product.has_variants ? 0 : (Number(product.base_price) || 0),
       base_stock: product.has_variants ? 0 : (Number(product.base_stock) || 0),
+      // Field pendukung yang sebelumnya hilang saat sanitasi — penting agar
+      // data tersimpan bisa di-load kembali ke form editor tanpa berubah.
+      selling_price: Math.max(0, Number(product.selling_price ?? product.base_price) || 0),
+      base_cost: Math.max(0, Number(product.base_cost) || 0),
+      unlimited_stock: Boolean(product.unlimited_stock),
       variants: sanitizedVariants,
-      is_active: true,
-      created_at: FieldValue.serverTimestamp(),
+      is_active: product.is_active !== false,
       updated_at: FieldValue.serverTimestamp(),
     };
 
-    await productRef.set(productData);
+    if (productId) {
+      await productRef.set(productData, { merge: true });
+    } else {
+      await productRef.set({
+        ...productData,
+        created_at: FieldValue.serverTimestamp(),
+      });
+    }
 
     // --- 2. Update custom_form_fields di dokumen store (jika ada fields baru) ---
     if (Array.isArray(fields) && fields.length > 0) {
@@ -110,9 +130,10 @@ export async function POST(request) {
       {
         success: true,
         productId: productRef.id,
-        message: "Produk berhasil disimpan",
+        updated: Boolean(productId),
+        message: productId ? "Produk berhasil diperbarui" : "Produk berhasil disimpan",
       },
-      { status: 201 }
+      { status: productId ? 200 : 201 }
     );
   } catch (error) {
     console.error("[admin/product/create] Error:", error);
