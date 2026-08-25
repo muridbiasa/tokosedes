@@ -35,6 +35,29 @@ function cartKey(productId, sku) {
   return `${productId}::${sku || "base"}`;
 }
 
+// Normalisasi tipe field: alias lama/seed dipetakan ke tipe yang dirender,
+// sehingga form dinamis tahan terhadap semua konfigurasi admin.
+function normalizeFieldType(type) {
+  const map = { short_text: "text", long_text: "textarea", tel: "phone" };
+  return map[type] || type || "text";
+}
+
+// Field bertipe phone (atau label bernomor) menjadi sumber No. WhatsApp pesanan.
+function getPhoneField(fields) {
+  return (
+    fields.find((f) => normalizeFieldType(f.type) === "phone") ||
+    fields.find((f) => /whatsapp|\bwa\b|no\.?\s*hp|nomor\s*(telepon|hp|whatsapp)|\bphone\b|\btel\b/i.test(f.label || ""))
+  );
+}
+
+// Field nama: label mengandung "nama", atau field teks pertama sebagai fallback.
+function getNameField(fields) {
+  return (
+    fields.find((f) => normalizeFieldType(f.type) !== "phone" && /nama/i.test(f.label || "")) ||
+    fields.find((f) => normalizeFieldType(f.type) === "text")
+  );
+}
+
 export default function StorefrontPage() {
   // HOOK: Fetch store settings from Firestore
   const { settings, storeId, loading: loadingSettings } = useStoreSettings();
@@ -52,8 +75,6 @@ export default function StorefrontPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState(null);
   
-  const [customerName, setCustomerName] = useState("");
-  const [customerPhone, setCustomerPhone] = useState("");
   const [customFieldValues, setCustomFieldValues] = useState({});
   const [formErrors, setFormErrors] = useState({});
   const [cartSheetOpen, setCartSheetOpen] = useState(false);
@@ -62,6 +83,23 @@ export default function StorefrontPage() {
   const cartItems = useMemo(() => Object.values(cart), [cart]);
   const totalQty = cartItems.reduce((sum, i) => sum + i.qty, 0);
   const totalAmount = cartItems.reduce((sum, i) => sum + i.qty * i.price, 0);
+
+  // Form "Data Pembeli" 100% dinamis: hanya dari custom_form_fields profil toko.
+  const buyerFields = useMemo(
+    () => (settings?.custom_form_fields || []).slice().sort((a, b) => a.order - b.order),
+    [settings]
+  );
+  const phoneField = getPhoneField(buyerFields);
+  const nameField = getNameField(buyerFields);
+
+  function fieldValueText(field) {
+    if (!field) return "";
+    const v = customFieldValues[field.field_id];
+    if (v == null) return "";
+    return Array.isArray(v) ? v.join(", ") : String(v);
+  }
+  const derivedName = (nameField ? fieldValueText(nameField) : "").trim();
+  const derivedPhone = (phoneField ? fieldValueText(phoneField) : "").trim();
 
   // MENGAMBIL DATA KATALOG DARI FIRESTORE
   useEffect(() => {
@@ -159,15 +197,24 @@ export default function StorefrontPage() {
 
   function validateForm() {
     const errors = {};
-    if (!customerName.trim()) errors.customerName = "Nama wajib diisi";
-    if (!customerPhone.trim()) errors.customerPhone = "No. WhatsApp wajib diisi";
-    else if (!isValidPhone(customerPhone)) errors.customerPhone = "Gunakan 8-15 digit angka";
 
-    for (const field of (settings?.custom_form_fields || [])) {
-      if (field.is_required && !customFieldValues[field.field_id]) {
+    // Wajib isi per field, murni dari konfigurasi admin.
+    for (const field of buyerFields) {
+      const v = customFieldValues[field.field_id];
+      if (field.is_required && (v === undefined || v === "" || (Array.isArray(v) && !v.length))) {
         errors[field.field_id] = "Wajib diisi";
       }
     }
+
+    // No. WhatsApp diambil dari field bertipe phone / berlabel nomor.
+    if (!phoneField) {
+      errors.__config = "Toko ini belum mengatur field nomor WhatsApp — pembayaran belum bisa diproses.";
+    } else {
+      const pv = derivedPhone;
+      if (!pv) errors[phoneField.field_id] = "No. WhatsApp wajib diisi";
+      else if (!isValidPhone(pv)) errors[phoneField.field_id] = "Gunakan 8-15 digit angka";
+    }
+
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
   }
@@ -191,8 +238,8 @@ export default function StorefrontPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           storeId,
-          customerName,
-          customerPhone,
+          customerName: derivedName || "Pelanggan",
+          customerPhone: derivedPhone,
           items: cartItems.map(item => ({
             id: item.product_id,
             name: item.name,
@@ -239,8 +286,6 @@ export default function StorefrontPage() {
 
   function resetAfterSuccess() {
     setCart({});
-    setCustomerName("");
-    setCustomerPhone("");
     setCustomFieldValues({});
     setCheckoutState("idle");
     setCartSheetOpen(false);
@@ -349,66 +394,36 @@ export default function StorefrontPage() {
           </div>
         )}
 
-        {/* --- Data Pembeli & Field Kustom --- */}
+        {/* --- Data Pembeli & Field Kustom: 100% dinamis dari konfigurasi admin --- */}
         <section className="mt-8 space-y-4 rounded-lg border border-[var(--line)] bg-[var(--paper)] p-4">
           <h2 className="font-display text-sm font-semibold uppercase tracking-wide text-[var(--muted)]">
             Data Pembeli
           </h2>
 
-          <div>
-            <label className="mb-1 block text-xs font-medium text-[var(--ink)]">
-              Nama Lengkap <span className="text-[var(--brick)]">*</span>
-            </label>
-            <input
-              type="text"
-              value={customerName}
-              onChange={(e) => {
-                setCustomerName(e.target.value);
-                setFormErrors((prev) => ({ ...prev, customerName: undefined }));
-              }}
-              placeholder="Nama sesuai pesanan"
-              className={`w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--marigold)] ${
-                formErrors.customerName ? "border-[var(--brick)]" : "border-[var(--line)]"
-              }`}
-            />
-            {formErrors.customerName && (
-              <p className="mt-1 text-xs text-[var(--brick)]">{formErrors.customerName}</p>
-            )}
-          </div>
+          {buyerFields.length === 0 && (
+            <p className="text-sm text-[var(--muted)]">
+              Belum ada form data pembeli yang dikonfigurasi admin.
+            </p>
+          )}
 
-          <div>
-            <label className="mb-1 block text-xs font-medium text-[var(--ink)]">
-              No. WhatsApp <span className="text-[var(--brick)]">*</span>
-            </label>
-            <input
-              type="tel"
-              value={customerPhone}
-              onChange={(e) => {
-                setCustomerPhone(e.target.value);
-                setFormErrors((prev) => ({ ...prev, customerPhone: undefined }));
-              }}
-              placeholder="081234567890"
-              className={`w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--marigold)] ${
-                formErrors.customerPhone ? "border-[var(--brick)]" : "border-[var(--line)]"
-              }`}
-            />
-            {formErrors.customerPhone && (
-              <p className="mt-1 text-xs text-[var(--brick)]">{formErrors.customerPhone}</p>
-            )}
-          </div>
+          {!phoneField && buyerFields.length > 0 && (
+            <p role="alert" className="rounded-md border border-[var(--brick)]/40 bg-[var(--brick)]/10 px-3 py-2 text-xs text-[var(--brick)]">
+              Toko ini belum mengatur field nomor WhatsApp (tipe <em>Nomor telepon</em>) — pembayaran belum bisa diproses.
+            </p>
+          )}
+          {formErrors.__config && (
+            <p role="alert" className="text-xs text-[var(--brick)]">{formErrors.__config}</p>
+          )}
 
-          {(settings?.custom_form_fields || [])
-            .slice()
-            .sort((a, b) => a.order - b.order)
-            .map((field) => (
-              <CustomFieldInput
-                key={field.field_id}
-                field={field}
-                value={customFieldValues[field.field_id]}
-                error={formErrors[field.field_id]}
-                onChange={(value) => updateCustomField(field.field_id, value)}
-              />
-            ))}
+          {buyerFields.map((field) => (
+            <CustomFieldInput
+              key={field.field_id}
+              field={field}
+              value={customFieldValues[field.field_id]}
+              error={formErrors[field.field_id]}
+              onChange={(value) => updateCustomField(field.field_id, value)}
+            />
+          ))}
         </section>
       </main>
       )}
@@ -488,7 +503,7 @@ export default function StorefrontPage() {
           state={checkoutState}
           cartItems={cartItems}
           totalAmount={totalAmount}
-          customerName={customerName}
+          customerName={derivedName || "(nama belum diisi)"}
           onClose={() => setCheckoutState("idle")}
           onConfirm={confirmPayment}
           onDone={resetAfterSuccess}
@@ -588,6 +603,10 @@ function CustomFieldInput({ field, value, error, onChange }) {
   const base = `w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--marigold)] ${
     error ? "border-[var(--brick)]" : "border-[var(--line)]"
   }`;
+  // Normalisasi tipe: alias lama/seed (short_text, long_text, tel) dipetakan,
+  // sehingga semua tipe hasil konfigurasi admin pasti punya elemen inputnya.
+  const type = normalizeFieldType(field.type);
+  const options = Array.isArray(field.options) ? field.options : [];
 
   return (
     <div>
@@ -596,7 +615,7 @@ function CustomFieldInput({ field, value, error, onChange }) {
         {field.is_required && <span className="text-[var(--brick)]"> *</span>}
       </label>
 
-      {field.type === "text" && (
+      {type === "text" && (
         <input
           type="text"
           value={value || ""}
@@ -605,7 +624,18 @@ function CustomFieldInput({ field, value, error, onChange }) {
         />
       )}
 
-      {field.type === "textarea" && (
+      {type === "phone" && (
+        <input
+          type="tel"
+          inputMode="numeric"
+          placeholder="081234567890"
+          value={value || ""}
+          onChange={(e) => onChange(e.target.value)}
+          className={base}
+        />
+      )}
+
+      {type === "textarea" && (
         <textarea
           rows={2}
           value={value || ""}
@@ -614,7 +644,7 @@ function CustomFieldInput({ field, value, error, onChange }) {
         />
       )}
 
-      {field.type === "number" && (
+      {type === "number" && (
         <input
           type="number"
           value={value || ""}
@@ -623,10 +653,16 @@ function CustomFieldInput({ field, value, error, onChange }) {
         />
       )}
 
-      {field.type === "dropdown" && (
+      {type === "info" && (
+        <p className="rounded-md bg-[var(--canvas)] px-3 py-2 text-sm text-[var(--muted)]">
+          {options.filter(Boolean).join(" ") || "—"}
+        </p>
+      )}
+
+      {type === "dropdown" && (
         <select value={value || ""} onChange={(e) => onChange(e.target.value)} className={base}>
           <option value="">Pilih salah satu</option>
-          {field.options.map((opt) => (
+          {options.map((opt) => (
             <option key={opt} value={opt}>
               {opt}
             </option>
@@ -634,9 +670,9 @@ function CustomFieldInput({ field, value, error, onChange }) {
         </select>
       )}
 
-      {field.type === "radio" && (
+      {type === "radio" && (
         <div className="space-y-1.5">
-          {field.options.map((opt) => (
+          {options.map((opt) => (
             <label key={opt} className="flex items-center gap-2 text-sm text-[var(--ink)]">
               <input
                 type="radio"
@@ -651,9 +687,9 @@ function CustomFieldInput({ field, value, error, onChange }) {
         </div>
       )}
 
-      {field.type === "checkbox" && (
+      {type === "checkbox" && (
         <div className="space-y-1.5">
-          {field.options.map((opt) => {
+          {options.map((opt) => {
             const selected = Array.isArray(value) && value.includes(opt);
             return (
               <label key={opt} className="flex items-center gap-2 text-sm text-[var(--ink)]">

@@ -101,7 +101,9 @@ export async function POST(request) {
 
   // Dukung format snake_case atau camelCase
   const store_id = body.store_id || body.storeId || "tokosedes-prod";
-  const customer_name = body.customer_name || body.customerName;
+  // Nama boleh absen (admin mungkin tidak menambahkan field nama di form
+  // dinamisnya) — fallback netral supaya checkout tetap bisa diproses.
+  const customer_name = body.customer_name || body.customerName || "Pelanggan";
   const customer_phone = body.customer_phone || body.customerPhone;
   const customer_address = body.customer_address || body.customerAddress || "";
   const items = body.items || [];
