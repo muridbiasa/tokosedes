@@ -376,10 +376,18 @@ export default function StorefrontPage() {
           Katalog Produk
         </h2>
 
-        {/* LOADING INDICATOR / RENDER PRODUK */}
+        {/* LOADING SKELETON / RENDER PRODUK */}
         {loadingProducts ? (
-          <div className="flex justify-center py-8">
-            <div className="h-6 w-6 animate-spin rounded-full border-2 border-[var(--line)] border-t-[var(--ink)]" />
+          <div className={`grid gap-4 ${getGridClasses(settings?.catalogGridSize)}`}>
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--paper)]">
+                <div className="aspect-square w-full animate-pulse bg-[var(--canvas)]" />
+                <div className="space-y-2 p-3">
+                  <div className="h-3.5 w-3/4 animate-pulse rounded bg-[var(--canvas)]" />
+                  <div className="h-3 w-1/2 animate-pulse rounded bg-[var(--canvas)]" />
+                </div>
+              </div>
+            ))}
           </div>
         ) : products.length === 0 ? (
           <div className="rounded-lg border border-dashed border-[var(--line)] p-8 text-center text-sm text-[var(--muted)]">
@@ -387,10 +395,11 @@ export default function StorefrontPage() {
           </div>
         ) : (
           <div ref={animateProductList} className={`grid gap-4 ${getGridClasses(settings?.catalogGridSize)}`}>
-            {products.map((product) => (
+            {products.map((product, index) => (
               <ProductCard
                 key={product.product_id}
                 product={product}
+                index={index}
                 selectedIndex={selectedVariant[product.product_id] ?? 0}
                 onSelectVariant={(index) =>
                   setSelectedVariant((prev) => ({ ...prev, [product.product_id]: index }))
@@ -455,7 +464,7 @@ export default function StorefrontPage() {
           </Button>
 
           {cartSheetOpen && (
-            <div className="max-h-64 overflow-y-auto border-t border-dashed border-[var(--line)] px-4 py-3">
+            <div className="anim-fade-up max-h-64 overflow-y-auto border-t border-dashed border-[var(--line)] px-4 py-3">
               <ul ref={animateCartList} className="space-y-2">
                 {cartItems.map((item) => (
                   <li key={item.key} className="flex items-center justify-between gap-2">
@@ -498,7 +507,7 @@ export default function StorefrontPage() {
           <div className="flex items-center justify-between gap-3 px-4 py-3">
             <div>
               <p className="text-[10px] uppercase tracking-wide text-[var(--muted)]">Total</p>
-              <p className="font-mono text-base font-semibold text-[var(--ink)]">
+              <p key={totalAmount} className="anim-bump font-mono text-base font-semibold text-[var(--ink)]">
                 {formatRupiah(totalAmount)}
               </p>
             </div>
@@ -538,7 +547,7 @@ export default function StorefrontPage() {
   );
 }
 
-function ProductCard({ product, selectedIndex, onSelectVariant, onOpenModal, themeColor }) {
+function ProductCard({ product, index = 0, selectedIndex, onSelectVariant, onOpenModal, themeColor }) {
   const variant = product.has_variants ? product.variants[selectedIndex] : null;
   const price = variant ? variant.price : product.base_price;
   const stock = variant ? variant.stock : product.base_stock;
@@ -547,7 +556,9 @@ function ProductCard({ product, selectedIndex, onSelectVariant, onOpenModal, the
   return (
     <Card
       onClick={onOpenModal}
-      className="cursor-pointer overflow-hidden border-[var(--line)] shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
+      className="anim-fade-up cursor-pointer overflow-hidden border-[var(--line)] shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
+      // Muncul berurutan: kartu ke-N tertunda N x 70ms — murni CSS delay.
+      style={{ animationDelay: `${Math.min(index, 8) * 70}ms` }}
     >
       <div className="aspect-square w-full bg-[var(--canvas)]">
         <DriveImage
@@ -741,8 +752,8 @@ function CustomFieldInput({ field, value, error, onChange }) {
 
 function CheckoutModal({ state, cartItems, totalAmount, customerName, onClose, onConfirm, onDone }) {
   return (
-    <div className="fixed inset-0 z-30 flex items-end justify-center bg-black/40 sm:items-center">
-      <div className="w-full max-w-sm rounded-t-2xl bg-[var(--paper)] p-5 sm:rounded-2xl">
+    <div className="anim-fade-in fixed inset-0 z-30 flex items-end justify-center bg-black/40 sm:items-center">
+      <div className="anim-pop-in w-full max-w-sm rounded-t-2xl bg-[var(--paper)] p-5 shadow-2xl sm:rounded-2xl">
         {state === "confirming" && (
           <>
             <div className="mb-3 flex items-center justify-between">
