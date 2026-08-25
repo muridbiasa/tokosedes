@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import Link from "next/link";
@@ -31,5 +31,5 @@ function OrdersContent() {
 }
 
 export default function OrdersPage() {
-  return <AdminAuthGate><OrdersContent /></AdminAuthGate>;
+  return <Suspense fallback={<main className="flex min-h-screen items-center justify-center bg-[#F4F5F4] text-sm text-[#6B7280]">Memuat pesanan…</main>}><AdminAuthGate><OrdersContent /></AdminAuthGate></Suspense>;
 }

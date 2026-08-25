@@ -5,13 +5,24 @@ import { subscribeActiveProfile, profileDoc, DEFAULT_PROFILE_SETTINGS, profileSe
 import { db } from "@/lib/firebase";
 import { doc, onSnapshot } from "firebase/firestore";
 
-export function useStoreSettings() {
-  const [storeId, setStoreId] = useState(null);
+/**
+ * useStoreSettings(preferredId?)
+ *
+ * Tanpa argumen: mengikuti toko aktif (settings/active_store).
+ * Dengan preferredId: mengikat ke toko tersebut secara eksplisit —
+ * dipakai halaman editor agar ?storeId=... di URL dihormati, sehingga
+ * "Kelola toko X" benar-benar membuka toko X, bukan toko aktif lain.
+ */
+export function useStoreSettings(preferredId) {
+  const [activeFromDb, setActiveFromDb] = useState(null);
   const [settings, setSettings] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  useEffect(() => subscribeActiveProfile(setStoreId, setError), []);
+  useEffect(() => subscribeActiveProfile(setActiveFromDb, setError), []);
+
+  const storeId = preferredId || activeFromDb;
+
   useEffect(() => {
     if (!storeId) {
       setSettings(null);
