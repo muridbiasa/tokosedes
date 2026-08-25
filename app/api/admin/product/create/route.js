@@ -119,10 +119,18 @@ export async function POST(request) {
       const newFields = fields.filter((f) => !existingIds.has(f.field_id));
 
       if (newFields.length > 0) {
-        await storeRef.update({
-          custom_form_fields: FieldValue.arrayUnion(...newFields),
-          updated_at: FieldValue.serverTimestamp(),
-        });
+        // PENTING: pakai set()+merge, BUKAN update(). Dokumen agregat
+        // stores/{storeId} boleh saja belum ada (toko dibuat via dashboard
+        // hanya membuat store_profiles/{id}, sementara produk hidup di
+        // subkoleksi). update() melempar NOT_FOUND untuk dokumen kosong;
+        // set+merge membuatnya otomatis.
+        await storeRef.set(
+          {
+            custom_form_fields: FieldValue.arrayUnion(...newFields),
+            updated_at: FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
       }
     }
 
