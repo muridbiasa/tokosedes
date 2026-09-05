@@ -1,35 +1,388 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
-import { collection, onSnapshot, query, where } from "firebase/firestore";
-import { db } from "@/lib/firebase";
-import Link from "next/link";
-import { Download, Search, ArrowLeft } from "lucide-react";
-import { AnalyticsCards, TopSellers, filterOrders, getAnalytics, getOrderDate, money } from "@/components/admin/OrderAnalytics";
-import { subscribeActiveProfile, subscribeProfiles, toCsv, setActiveProfile } from "@/lib/storeProfiles";
+import { useState, useMemo, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
-import AdminAuthGate from "@/components/admin/AdminAuthGate";
+import Link from "next/link";
+import { 
+  Download, 
+  Search, 
+  Calendar as CalendarIcon, 
+  CheckCircle2, 
+  Clock, 
+  XCircle, 
+  AlertCircle,
+  Store,
+  ChevronLeft
+} from "lucide-react";
+import { db } from "@/lib/firebase";
+import { collection, getDocs, doc, getDoc } from "firebase/firestore";
 
-const tabs = [["ALL", "Semua"], ["PAID", "Paid"], ["PENDING", "Pending"], ["EXPIRED", "Expired"], ["FAILED", "Failed"]];
-const statusClass = { PAID: "bg-[#2F6D5D]/10 text-[#2F6D5D]", PENDING: "bg-[#F2A93B]/20 text-[#8a5b00]", EXPIRED: "bg-[#C1443C]/10 text-[#C1443C]", FAILED: "bg-[#C1443C]/10 text-[#C1443C]", CANCELLED: "bg-[#C1443C]/10 text-[#C1443C]" };
+// --- HELPER FUNCTIONS UNTUK FIELD KUSTOM ---
+function normalizeFieldType(type) {
+  const map = { short_text: "text", long_text: "textarea", tel: "phone" };
+  return map[type] || type || "text";
+}
 
-function OrdersContent() {
-  const searchParams = useSearchParams();
-  const requestedStoreId = searchParams.get("storeId");
-  const [profiles, setProfiles] = useState([]); const [activeId, setActiveId] = useState(null); const [orders, setOrders] = useState([]); const [status, setStatus] = useState("ALL"); const [search, setSearch] = useState(""); const [range, setRange] = useState("all"); const [from, setFrom] = useState(""); const [to, setTo] = useState(""); const [error, setError] = useState("");
-  useEffect(() => subscribeProfiles(setProfiles, (e) => setError(e.message)), []);
-  useEffect(() => subscribeActiveProfile((id) => setActiveId(requestedStoreId || id), (e) => setError(e.message)), [requestedStoreId]);
-  useEffect(() => {
-    if (requestedStoreId && profiles.some((profile) => profile.id === requestedStoreId)) setActiveProfile(requestedStoreId).catch((e) => setError(e.message));
-  }, [requestedStoreId, profiles]);
-  useEffect(() => { if (!activeId) return; return onSnapshot(query(collection(db, "orders"), where("store_id", "==", activeId)), (snap) => setOrders(snap.docs.map((doc) => ({ order_id: doc.id, ...doc.data() })).sort((a, b) => getOrderDate(b.created_at) - getOrderDate(a.created_at))), (e) => setError(e.message)); }, [activeId]);
-  const filtered = useMemo(() => filterOrders(orders, { status, search, range, from, to }), [orders, status, search, range, from, to]);
-  const analytics = useMemo(() => getAnalytics(filtered), [filtered]);
-  function download() { const rows = filtered.map((order) => ({ order_id: order.order_id, date: getOrderDate(order.created_at).toISOString(), buyer: order.customer_name, phone: order.customer_phone, items: (order.items || []).map((i) => `${i.name} x${i.qty}`).join("; "), total: order.total_amount, hpp: (order.items || []).reduce((sum, i) => sum + Number(i.hpp ?? i.base_cost ?? 0) * Number(i.qty || 0), 0), profit: Number(order.total_amount || 0) - (order.items || []).reduce((sum, i) => sum + Number(i.hpp ?? i.base_cost ?? 0) * Number(i.qty || 0), 0), status: order.payment_status, responses: JSON.stringify(order.custom_field_responses || {}) })); const url = URL.createObjectURL(new Blob([toCsv(rows)], { type: "text/csv;charset=utf-8" })); const a = document.createElement("a"); a.href = url; a.download = `orders-${activeId || "report"}.csv`; a.click(); URL.revokeObjectURL(url); }
-  const activeName = profiles.find((p) => p.id === activeId)?.name || "Store profile";
-  return <main className="min-h-screen bg-[#F4F5F4] text-[#14213D]"><header className="border-b border-[#E4E4E0] bg-white px-4 py-5"><div className="mx-auto flex max-w-6xl items-center justify-between gap-4"><div><Link href="/admin/dashboard" className="mb-2 flex items-center gap-2 text-xs text-[#6B7280]"><ArrowLeft data-icon="inline-start" /> Dashboard</Link><p className="text-xs uppercase tracking-[0.16em] text-[#6B7280]">Order management / {activeName}</p><h1 className="font-display text-2xl font-semibold">Orders & analytics</h1></div><button onClick={download} className="flex items-center gap-2 rounded-md bg-[#F2A93B] px-3 py-2 text-sm font-semibold"><Download data-icon="inline-start" /> Download report</button></div></header><div className="mx-auto flex max-w-6xl flex-col gap-5 px-4 py-6">{error && <p className="rounded-md border border-[#C1443C]/30 bg-[#C1443C]/10 p-3 text-sm text-[#C1443C]">{error}</p>}<div className="flex flex-wrap items-center gap-2"><select value={range} onChange={(e) => setRange(e.target.value)} className="rounded-md border border-[#E4E4E0] bg-white px-3 py-2 text-sm"><option value="all">Semua waktu</option><option value="today">Today</option><option value="yesterday">Yesterday</option><option value="custom">Custom range</option></select>{range === "custom" && <><input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="rounded-md border border-[#E4E4E0] bg-white px-3 py-2 text-sm" /><input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="rounded-md border border-[#E4E4E0] bg-white px-3 py-2 text-sm" /></>}<div className="relative min-w-56 flex-1"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[#6B7280]" /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search buyer or order ID" className="w-full rounded-md border border-[#E4E4E0] bg-white py-2 pl-10 pr-3 text-sm" /></div>{tabs.map(([value, label]) => <button key={value} onClick={() => setStatus(value)} className={`rounded-md border px-3 py-2 text-xs ${status === value ? "border-[#14213D] bg-[#14213D] text-white" : "border-[#E4E4E0] bg-white text-[#6B7280]"}`}>{label}</button>)}</div><AnalyticsCards analytics={analytics} /><div className="grid gap-5 lg:grid-cols-[1fr_2fr]"><TopSellers items={analytics.top} /><section className="overflow-hidden rounded-md border border-[#E4E4E0] bg-white"><div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-sm"><thead className="border-b border-[#E4E4E0] text-xs uppercase tracking-wide text-[#6B7280]"><tr><th className="p-3">Order</th><th className="p-3">Buyer</th><th className="p-3">Items</th><th className="p-3">Total</th><th className="p-3">Status</th></tr></thead><tbody>{filtered.map((order) => <tr key={order.order_id} className="border-b border-[#E4E4E0] last:border-0"><td className="p-3 font-mono text-xs">{order.order_id}<br /><span className="text-[#6B7280]">{getOrderDate(order.created_at).toLocaleString("id-ID")}</span></td><td className="p-3">{order.customer_name || "-"}<br /><span className="text-xs text-[#6B7280]">{order.customer_phone || "-"}</span></td><td className="p-3 text-xs">{(order.items || []).map((item) => `${item.name} x${item.qty}`).join(", ") || "-"}</td><td className="p-3 font-mono text-xs">{money(order.total_amount)}</td><td className="p-3"><span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${statusClass[order.payment_status] || "bg-[#F4F5F4]"}`}>{order.payment_status || "UNKNOWN"}</span></td></tr>)}</tbody></table>{!filtered.length && <p className="p-8 text-center text-sm text-[#6B7280]">Tidak ada order pada filter ini.</p>}</div></section></div></div></main>;
+function getPhoneFieldId(fields) {
+  const f = fields.find((f) => normalizeFieldType(f.type) === "phone") ||
+            fields.find((f) => /whatsapp|\bwa\b|no\.?\s*hp|nomor\s*(telepon|hp|whatsapp)|\bphone\b|\btel\b/i.test(f.label || ""));
+  return f ? f.field_id : null;
+}
+
+function getNameFieldId(fields) {
+  const f = fields.find((f) => normalizeFieldType(f.type) !== "phone" && /nama/i.test(f.label || "")) ||
+            fields.find((f) => normalizeFieldType(f.type) === "text");
+  return f ? f.field_id : null;
+}
+
+function filterOrders(orders, { status, search, range, from, to }) {
+  return orders.filter((o) => {
+    if (status && status !== "ALL" && o.payment_status !== status) return false;
+    if (search) {
+      const q = search.toLowerCase();
+      const matchId = (o.order_id || "").toLowerCase().includes(q);
+      const matchName = (o.customer_name || "").toLowerCase().includes(q);
+      const matchPhone = (o.customer_phone || "").toLowerCase().includes(q);
+      if (!matchId && !matchName && !matchPhone) return false;
+    }
+    return true;
+  });
+}
+
+function getAnalytics(orders) {
+  let omzet = 0;
+  let grossProfit = 0;
+  let netProfit = 0;
+  let uniqueBuyers = new Set();
+  let paidCount = 0;
+  let failedCount = 0;
+  let productSales = {};
+
+  orders.forEach((o) => {
+    const isPaid = o.payment_status === "PAID";
+    if (isPaid) {
+      omzet += Number(o.total_amount || 0);
+      paidCount++;
+      if (o.customer_phone) uniqueBuyers.add(o.customer_phone);
+
+      let orderHpp = 0;
+      (o.items || []).forEach((item) => {
+        const hppItem = Number(item.hpp ?? item.base_cost ?? 0);
+        const qty = Number(item.qty || 0);
+        orderHpp += hppItem * qty;
+
+        const key = `${item.name} - ${item.variant || 'Default'}`;
+        if (!productSales[key]) {
+          productSales[key] = { name: item.name, variant: item.variant, qty: 0, revenue: 0 };
+        }
+        productSales[key].qty += qty;
+        productSales[key].revenue += Number(item.price || 0) * qty;
+      });
+
+      const profit = Number(o.total_amount || 0) - orderHpp;
+      grossProfit += profit;
+      netProfit += profit;
+    } else {
+      failedCount++;
+    }
+  });
+
+  const topSellers = Object.values(productSales).sort((a, b) => b.qty - a.qty);
+
+  return {
+    omzet,
+    grossProfit,
+    netProfit,
+    uniqueBuyers: uniqueBuyers.size,
+    paidCount,
+    failedCount,
+    topSellers,
+  };
+}
+
+function getOrderDate(createdAt) {
+  if (!createdAt) return new Date();
+  if (createdAt.toDate) return createdAt.toDate();
+  return new Date(createdAt);
 }
 
 export default function OrdersPage() {
-  return <Suspense fallback={<main className="flex min-h-screen items-center justify-center bg-[#F4F5F4] text-sm text-[#6B7280]">Memuat pesanan…</main>}><AdminAuthGate><OrdersContent /></AdminAuthGate></Suspense>;
+  return (
+    <div className="min-h-screen bg-[#F4F4F0] text-[#14213D] p-4 md:p-8">
+      <OrdersContent />
+    </div>
+  );
+}
+
+function OrdersContent() {
+  const searchParams = useSearchParams();
+  const activeId = searchParams.get("storeid") || "";
+
+  const [orders, setOrders] = useState([]);
+  const [profiles, setProfiles] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [status, setStatus] = useState("ALL");
+  const [search, setSearch] = useState("");
+  const [range, setRange] = useState("all");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+
+  useEffect(() => {
+    async function fetchData() {
+      try {
+        setLoading(true);
+        const profSnap = await getDocs(collection(db, "profiles"));
+        const profs = profSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        setProfiles(profs);
+
+        if (activeId) {
+          const ordSnap = await getDocs(collection(db, "profiles", activeId, "orders"));
+          const ords = ordSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+          setOrders(ords);
+        }
+      } catch (err) {
+        console.error("Error fetching orders:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchData();
+  }, [activeId]);
+
+  const filtered = useMemo(() => filterOrders(orders, { status, search, range, from, to }), [orders, status, search, range, from, to]);
+  const analytics = useMemo(() => getAnalytics(filtered), [filtered]);
+
+  // Ambil profil aktif dan pengaturan field kustom secara dinamis
+  const activeProfile = profiles.find((p) => p.id === activeId);
+  const storeFields = activeProfile?.settings?.custom_form_fields || [];
+  const phoneFieldId = getPhoneFieldId(storeFields);
+  const nameFieldId = getNameFieldId(storeFields);
+
+  // Fungsi download laporan dinamis ke Excel (Tab-Separated)
+  function download() {
+    const standardHeaders = [
+      "Order ID",
+      "Tanggal",
+      "Pembeli",
+      "No. WhatsApp",
+      "Items",
+      "Total (Rp)",
+      "HPP (Rp)",
+      "Profit (Rp)",
+      "Status",
+    ];
+
+    const dynamicFields = storeFields.filter(
+      (f) => f.field_id !== phoneFieldId && f.field_id !== nameFieldId
+    );
+    const dynamicHeaders = dynamicFields.map((f) => f.label);
+    const headers = [...standardHeaders, ...dynamicHeaders];
+
+    const rows = filtered.map((order) => {
+      const baseRow = [
+        order.order_id,
+        getOrderDate(order.created_at).toISOString().replace("T", " ").substring(0, 19),
+        order.customer_name || "-",
+        order.customer_phone ? `'${order.customer_phone}` : "-",
+        (order.items || []).map((i) => `${i.name} x${i.qty}`).join("; "),
+        order.total_amount || 0,
+        (order.items || []).reduce((sum, i) => sum + Number(i.hpp ?? i.base_cost ?? 0) * Number(i.qty || 0), 0),
+        Number(order.total_amount || 0) - (order.items || []).reduce((sum, i) => sum + Number(i.hpp ?? i.base_cost ?? 0) * Number(i.qty || 0), 0),
+        order.payment_status || "-",
+      ];
+
+      const dynamicValues = dynamicFields.map((f) => {
+        const val = order.custom_field_responses?.[f.field_id];
+        if (!val) return "-";
+        return Array.isArray(val) ? val.join(", ") : val;
+      });
+
+      return [...baseRow, ...dynamicValues];
+    });
+
+    const csvContent = [
+      headers.join("\t"),
+      ...rows.map((row) =>
+        row.map((val) => `"${String(val).replace(/"/g, '""')}"`).join("\t")
+      ),
+    ].join("\n");
+
+    const blob = new Blob(["\ufeff" + csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `Laporan-Orders-${activeId || "store"}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  return (
+    <div className="max-w-7xl mx-auto space-y-6">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2 text-sm text-[#6B7280] mb-1">
+            <Link href={`/admin/dashboard?storeid=${activeId}`} className="hover:underline flex items-center gap-1">
+              <ChevronLeft className="w-4 h-4" /> Dashboard
+            </Link>
+            <span>/</span>
+            <span>Order Management</span>
+          </div>
+          <h1 className="text-2xl font-bold text-[#14213D]">Orders & Analytics</h1>
+        </div>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={download}
+            className="flex items-center gap-2 px-4 py-2 bg-[#FCA311] text-[#14213D] font-semibold rounded-xl shadow hover:opacity-90 transition"
+          >
+            <Download className="w-4 h-4" /> Download report
+          </button>
+        </div>
+      </div>
+
+      {/* Filter & Search */}
+      <div className="bg-white p-4 rounded-2xl shadow-sm border border-[#E4E4E0] flex flex-col md:flex-row gap-4 items-center justify-between">
+        <div className="relative w-full md:w-96">
+          <Search className="absolute left-3 top-2.5 w-4 h-4 text-[#6B7280]" />
+          <input
+            type="text"
+            placeholder="Cari pembeli atau Order ID..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full pl-9 pr-4 py-2 border border-[#E4E4E0] rounded-xl text-sm focus:outline-none focus:border-[#14213D]"
+          />
+        </div>
+        <div className="flex gap-2 w-full md:w-auto overflow-x-auto pb-1 md:pb-0">
+          {["ALL", "PAID", "PENDING", "EXPIRED", "FAILED"].map((st) => (
+            <button
+              key={st}
+              onClick={() => setStatus(st)}
+              className={`px-3 py-1.5 rounded-xl text-xs font-medium transition ${
+                status === st ? "bg-[#14213D] text-white" : "bg-[#F4F4F0] text-[#6B7280] hover:bg-[#E4E4E0]"
+              }`}
+            >
+              {st}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Analytics Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        <div className="bg-white p-4 rounded-2xl border border-[#E4E4E0] shadow-sm">
+          <div className="text-xs text-[#6B7280] font-medium">OMZET</div>
+          <div className="text-lg font-bold text-[#14213D] mt-1">Rp{analytics.omzet.toLocaleString()}</div>
+        </div>
+        <div className="bg-white p-4 rounded-2xl border border-[#E4E4E0] shadow-sm">
+          <div className="text-xs text-[#6B7280] font-medium">GROSS PROFIT</div>
+          <div className="text-lg font-bold text-[#14213D] mt-1">Rp{analytics.grossProfit.toLocaleString()}</div>
+        </div>
+        <div className="bg-white p-4 rounded-2xl border border-[#E4E4E0] shadow-sm">
+          <div className="text-xs text-[#6B7280] font-medium">NET PROFIT</div>
+          <div className="text-lg font-bold text-[#14213D] mt-1">Rp{analytics.netProfit.toLocaleString()}</div>
+        </div>
+        <div className="bg-white p-4 rounded-2xl border border-[#E4E4E0] shadow-sm">
+          <div className="text-xs text-[#6B7280] font-medium">PEMBELI UNIK</div>
+          <div className="text-lg font-bold text-[#14213D] mt-1">{analytics.uniqueBuyers}</div>
+        </div>
+        <div className="bg-white p-4 rounded-2xl border border-[#E4E4E0] shadow-sm">
+          <div className="text-xs text-[#6B7280] font-medium">PAID</div>
+          <div className="text-lg font-bold text-green-600 mt-1">{analytics.paidCount}</div>
+        </div>
+        <div className="bg-white p-4 rounded-2xl border border-[#E4E4E0] shadow-sm">
+          <div className="text-xs text-[#6B7280] font-medium">GAGAL / EXPIRED</div>
+          <div className="text-lg font-bold text-red-500 mt-1">{analytics.failedCount}</div>
+        </div>
+      </div>
+
+      {/* Table Orders */}
+      <div className="bg-white rounded-2xl shadow-sm border border-[#E4E4E0] overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-[#F4F4F0] text-xs font-semibold text-[#6B7280] border-b border-[#E4E4E0]">
+                <th className="p-3">Order ID</th>
+                <th className="p-3">Tanggal</th>
+                <th className="p-3">Pembeli</th>
+                <th className="p-3">Items</th>
+                <th className="p-3">Total</th>
+                <th className="p-3">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[#E4E4E0] text-sm">
+              {loading ? (
+                <tr>
+                  <td colSpan="6" className="p-6 text-center text-[#6B7280]">Memuat data pesanan...</td>
+                </tr>
+              ) : filtered.length === 0 ? (
+                <tr>
+                  <td colSpan="6" className="p-6 text-center text-[#6B7280]">Tidak ada pesanan ditemukan.</td>
+                </tr>
+              ) : (
+                filtered.map((order) => {
+                  const d = getOrderDate(order.created_at);
+                  return (
+                    <tr key={order.id || order.order_id} className="hover:bg-[#F9F9F8] transition">
+                      <td className="p-3 font-medium text-[#14213D]">{order.order_id}</td>
+                      <td className="p-3 text-xs text-[#6B7280]">
+                        {d.toLocaleDateString()} {d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </td>
+                      <td className="p-3">
+                        <div className="font-medium text-[#14213D]">{order.customer_name || "-"}</div>
+                        <div className="text-xs text-[#6B7280]">{order.customer_phone || "-"}</div>
+                        
+                        {/* Dynamic Custom Field Responses */}
+                        {order.custom_field_responses && Object.keys(order.custom_field_responses).some((k) => k !== phoneFieldId && k !== nameFieldId) && (
+                          <div className="mt-2 flex flex-col gap-1 border-t border-[#E4E4E0] pt-1.5">
+                            {Object.entries(order.custom_field_responses)
+                              .filter(([key]) => key !== phoneFieldId && key !== nameFieldId)
+                              .map(([key, val]) => {
+                                const field = storeFields.find((f) => f.field_id === key);
+                                const label = field ? field.label : key;
+                                const valStr = Array.isArray(val) ? val.join(", ") : val;
+                                if (!valStr) return null;
+                                return (
+                                  <span key={key} className="text-[11px] text-[#6B7280] leading-tight">
+                                    <span className="font-medium text-[#14213D]">{label}:</span> {valStr}
+                                  </span>
+                                );
+                              })}
+                          </div>
+                        )}
+                      </td>
+                      <td className="p-3">
+                        <div className="text-xs space-y-0.5">
+                          {(order.items || []).map((i, idx) => (
+                            <div key={idx} className="text-[#14213D]">
+                              {i.name} <span className="text-[#6B7280]">x{i.qty}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </td>
+                      <td className="p-3 font-semibold text-[#14213D]">
+                        Rp{(order.total_amount || 0).toLocaleString()}
+                      </td>
+                      <td className="p-3">
+                        <span
+                          className={`inline-block px-2.5 py-1 text-xs font-semibold rounded-full ${
+                            order.payment_status === "PAID"
+                              ? "bg-green-100 text-green-700"
+                              : order.payment_status === "PENDING"
+                              ? "bg-amber-100 text-amber-700"
+                              : "bg-red-100 text-red-700"
+                          }`}
+                        >
+                          {order.payment_status || "PENDING"}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
 }
