@@ -1,21 +1,15 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { 
   Download, 
   Search, 
-  Calendar as CalendarIcon, 
-  CheckCircle2, 
-  Clock, 
-  XCircle, 
-  AlertCircle,
-  Store,
-  ChevronLeft
+  ChevronLeft 
 } from "lucide-react";
 import { db } from "@/lib/firebase";
-import { collection, getDocs, doc, getDoc } from "firebase/firestore";
+import { collection, getDocs } from "firebase/firestore";
 
 // --- HELPER FUNCTIONS UNTUK FIELD KUSTOM ---
 function normalizeFieldType(type) {
@@ -109,7 +103,9 @@ function getOrderDate(createdAt) {
 export default function OrdersPage() {
   return (
     <div className="min-h-screen bg-[#F4F4F0] text-[#14213D] p-4 md:p-8">
-      <OrdersContent />
+      <Suspense fallback={<div className="p-6 text-center text-[#6B7280]">Memuat halaman orders...</div>}>
+        <OrdersContent />
+      </Suspense>
     </div>
   );
 }
@@ -152,13 +148,11 @@ function OrdersContent() {
   const filtered = useMemo(() => filterOrders(orders, { status, search, range, from, to }), [orders, status, search, range, from, to]);
   const analytics = useMemo(() => getAnalytics(filtered), [filtered]);
 
-  // Ambil profil aktif dan pengaturan field kustom secara dinamis
   const activeProfile = profiles.find((p) => p.id === activeId);
   const storeFields = activeProfile?.settings?.custom_form_fields || [];
   const phoneFieldId = getPhoneFieldId(storeFields);
   const nameFieldId = getNameFieldId(storeFields);
 
-  // Fungsi download laporan dinamis ke Excel (Tab-Separated)
   function download() {
     const standardHeaders = [
       "Order ID",
@@ -218,7 +212,6 @@ function OrdersContent() {
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
-      {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 text-sm text-[#6B7280] mb-1">
@@ -240,7 +233,6 @@ function OrdersContent() {
         </div>
       </div>
 
-      {/* Filter & Search */}
       <div className="bg-white p-4 rounded-2xl shadow-sm border border-[#E4E4E0] flex flex-col md:flex-row gap-4 items-center justify-between">
         <div className="relative w-full md:w-96">
           <Search className="absolute left-3 top-2.5 w-4 h-4 text-[#6B7280]" />
@@ -267,7 +259,6 @@ function OrdersContent() {
         </div>
       </div>
 
-      {/* Analytics Cards */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         <div className="bg-white p-4 rounded-2xl border border-[#E4E4E0] shadow-sm">
           <div className="text-xs text-[#6B7280] font-medium">OMZET</div>
@@ -295,7 +286,6 @@ function OrdersContent() {
         </div>
       </div>
 
-      {/* Table Orders */}
       <div className="bg-white rounded-2xl shadow-sm border border-[#E4E4E0] overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
@@ -331,7 +321,6 @@ function OrdersContent() {
                         <div className="font-medium text-[#14213D]">{order.customer_name || "-"}</div>
                         <div className="text-xs text-[#6B7280]">{order.customer_phone || "-"}</div>
                         
-                        {/* Dynamic Custom Field Responses */}
                         {order.custom_field_responses && Object.keys(order.custom_field_responses).some((k) => k !== phoneFieldId && k !== nameFieldId) && (
                           <div className="mt-2 flex flex-col gap-1 border-t border-[#E4E4E0] pt-1.5">
                             {Object.entries(order.custom_field_responses)
