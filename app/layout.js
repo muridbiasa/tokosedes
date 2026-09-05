@@ -1,5 +1,6 @@
 import './globals.css';
 import Script from 'next/script';
+import { Analytics } from '@vercel/analytics/react'; // IMPORT VERCEL ANALYTICS
 
 export const metadata = {
   title: 'Toko Sedes',
@@ -39,6 +40,9 @@ export default function RootLayout({ children }) {
           data-client-key={process.env.NEXT_PUBLIC_MIDTRANS_CLIENT_KEY}
           strategy="afterInteractive"
         />
+        
+        {/* KOMPONEN VERCEL ANALYTICS */}
+        <Analytics /> 
       </body>
     </html>
   );
