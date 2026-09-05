@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { 
@@ -44,7 +44,9 @@ function getOrderDate(createdAt) {
 export default function AdminDashboardPage() {
   return (
     <div className="min-h-screen bg-[#F4F4F0] text-[#14213D] p-4 md:p-8">
-      <AdminDashboardContent />
+      <Suspense fallback={<div className="p-6 text-center text-[#6B7280]">Memuat dashboard...</div>}>
+        <AdminDashboardContent />
+      </Suspense>
     </div>
   );
 }
@@ -80,7 +82,6 @@ function AdminDashboardContent() {
     fetchData();
   }, [activeId]);
 
-  // Ambil profil aktif & field kustom toko secara dinamis dari database
   const activeProfile = profiles.find((p) => p.id === activeId);
   const storeFields = activeProfile?.settings?.custom_form_fields || [];
   const phoneFieldId = getPhoneFieldId(storeFields);
@@ -185,7 +186,6 @@ function AdminDashboardContent() {
                         <div className="font-medium text-[#14213D]">{order.customer_name || "-"}</div>
                         <div className="text-xs text-[#6B7280] mb-1">{order.customer_phone || "-"}</div>
                         
-                        {/* Render Data Custom Form Secara Dinamis Sesuai Pengaturan Admin */}
                         {order.custom_field_responses && Object.keys(order.custom_field_responses).some((k) => k !== phoneFieldId && k !== nameFieldId) && (
                           <div className="mt-1.5 flex flex-col gap-0.5 border-t border-[#E4E4E0] pt-1.5">
                             {Object.entries(order.custom_field_responses)
