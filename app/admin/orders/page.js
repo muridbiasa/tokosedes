@@ -6,7 +6,7 @@ import { db } from "@/lib/firebase";
 import Link from "next/link";
 import { Download, Search, ArrowLeft } from "lucide-react";
 import { AnalyticsCards, TopSellers, filterOrders, getAnalytics, getOrderDate, money } from "@/components/admin/OrderAnalytics";
-import { subscribeActiveProfile, subscribeProfiles, toCsv, setActiveProfile } from "@/lib/storeProfiles";
+import { subscribeActiveProfile, subscribeProfiles, toCsv } from "@/lib/storeProfiles";
 import { useSearchParams } from "next/navigation";
 import AdminAuthGate from "@/components/admin/AdminAuthGate";
 
@@ -18,10 +18,18 @@ function OrdersContent() {
   const requestedStoreId = searchParams.get("storeId");
   const [profiles, setProfiles] = useState([]); const [activeId, setActiveId] = useState(null); const [orders, setOrders] = useState([]); const [status, setStatus] = useState("ALL"); const [search, setSearch] = useState(""); const [range, setRange] = useState("all"); const [from, setFrom] = useState(""); const [to, setTo] = useState(""); const [error, setError] = useState("");
   useEffect(() => subscribeProfiles(setProfiles, (e) => setError(e.message)), []);
-  useEffect(() => subscribeActiveProfile((id) => setActiveId(requestedStoreId || id), (e) => setError(e.message)), [requestedStoreId]);
+  useEffect(() => subscribeActiveProfile((id) => {
+    if (!requestedStoreId) setActiveId(id);
+  }, (e) => setError(e.message)), [requestedStoreId]);
   useEffect(() => {
-    if (requestedStoreId && profiles.some((profile) => profile.id === requestedStoreId)) setActiveProfile(requestedStoreId).catch((e) => setError(e.message));
-  }, [requestedStoreId, profiles]);
+    if (requestedStoreId && profiles.some((profile) => profile.id === requestedStoreId)) {
+      setActiveId(requestedStoreId);
+      return;
+    }
+    if (!requestedStoreId && activeId === null) {
+      setActiveId((current) => current ?? null);
+    }
+  }, [requestedStoreId, profiles, activeId]);
   useEffect(() => { if (!activeId) return; return onSnapshot(query(collection(db, "orders"), where("store_id", "==", activeId)), (snap) => setOrders(snap.docs.map((doc) => ({ order_id: doc.id, ...doc.data() })).sort((a, b) => getOrderDate(b.created_at) - getOrderDate(a.created_at))), (e) => setError(e.message)); }, [activeId]);
   const filtered = useMemo(() => filterOrders(orders, { status, search, range, from, to }), [orders, status, search, range, from, to]);
   const analytics = useMemo(() => getAnalytics(filtered), [filtered]);
