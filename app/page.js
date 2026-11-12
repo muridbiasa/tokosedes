@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import DriveImage from "@/components/shared/DriveImage";
 import { useStoreSettings } from "@/hooks/useStoreSettings";
-import { getCatalogContainerClasses, isUnlimitedStock, stockAllows, isValidPhone } from "@/lib/storeProfiles";
+import { getCatalogContainerClasses, handleCarouselKeyDown, isCarouselLayout, isUnlimitedStock, stockAllows, isValidPhone } from "@/lib/storeProfiles";
 import ProductDetailModal from "@/components/ProductDetailModal";
 // UI super ringan: shadcn/ui (lokal) + auto-animate (~2KB)
 import { useAutoAnimate } from "@formkit/auto-animate/react";
@@ -394,7 +394,21 @@ export default function StorefrontPage() {
             Belum ada produk di database Firestore.
           </div>
         ) : (
-          <div ref={animateProductList} className={getCatalogContainerClasses(settings?.catalogGridSize)}>
+          // Container katalog: display (grid/flex) TIDAK di-hardcode di sini —
+          // seluruhnya dari getCatalogContainerClasses() agar layout "carousel"
+          // dari StoreBuilder benar-benar aktif (bug produksi: `grid` hardcoded
+          // menang atas `flex` sehingga carousel mati).
+          // Keyboard nav (R-32): Arrow Left/Right menggulir carousel; tabIndex 0
+          // hanya saat carousel agar tidak menambah stop focus di layout grid.
+          <div
+            ref={animateProductList}
+            onKeyDown={(e) => handleCarouselKeyDown(e, settings?.catalogGridSize, e.currentTarget)}
+            tabIndex={isCarouselLayout(settings?.catalogGridSize) ? 0 : undefined}
+            role={isCarouselLayout(settings?.catalogGridSize) ? "region" : undefined}
+            aria-roledescription={isCarouselLayout(settings?.catalogGridSize) ? "carousel" : undefined}
+            aria-label={isCarouselLayout(settings?.catalogGridSize) ? "Katalog produk — gulir dengan tombol panah kiri/kanan" : undefined}
+            className={getCatalogContainerClasses(settings?.catalogGridSize)}
+          >
             {products.map((product, index) => (
               <ProductCard
                 key={product.product_id}
