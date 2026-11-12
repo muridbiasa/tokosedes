@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import DriveImage from "@/components/shared/DriveImage";
 import { useStoreSettings } from "@/hooks/useStoreSettings";
-import { getGridClasses, isUnlimitedStock, stockAllows, isValidPhone } from "@/lib/storeProfiles";
+import { getCatalogContainerClasses, handleCarouselKeyDown, isCarouselLayout, isUnlimitedStock, stockAllows, isValidPhone } from "@/lib/storeProfiles";
 import ProductDetailModal from "@/components/ProductDetailModal";
 // UI super ringan: shadcn/ui (lokal) + auto-animate (~2KB)
 import { useAutoAnimate } from "@formkit/auto-animate/react";
@@ -378,7 +378,7 @@ export default function StorefrontPage() {
 
         {/* LOADING SKELETON / RENDER PRODUK */}
         {loadingProducts ? (
-          <div className={`grid gap-4 ${getGridClasses(settings?.catalogGridSize)}`}>
+          <div className={getCatalogContainerClasses(settings?.catalogGridSize)}>
             {[0, 1, 2, 3].map((i) => (
               <div key={i} className="overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--paper)]">
                 <div className="aspect-square w-full animate-pulse bg-[var(--canvas)]" />
@@ -394,7 +394,21 @@ export default function StorefrontPage() {
             Belum ada produk di database Firestore.
           </div>
         ) : (
-          <div ref={animateProductList} className={`grid gap-4 ${getGridClasses(settings?.catalogGridSize)}`}>
+          // Container katalog: display (grid/flex) TIDAK di-hardcode di sini —
+          // seluruhnya dari getCatalogContainerClasses() agar layout "carousel"
+          // dari StoreBuilder benar-benar aktif (bug produksi: `grid` hardcoded
+          // menang atas `flex` sehingga carousel mati).
+          // Keyboard nav (R-32): Arrow Left/Right menggulir carousel; tabIndex 0
+          // hanya saat carousel agar tidak menambah stop focus di layout grid.
+          <div
+            ref={animateProductList}
+            onKeyDown={(e) => handleCarouselKeyDown(e, settings?.catalogGridSize, e.currentTarget)}
+            tabIndex={isCarouselLayout(settings?.catalogGridSize) ? 0 : undefined}
+            role={isCarouselLayout(settings?.catalogGridSize) ? "region" : undefined}
+            aria-roledescription={isCarouselLayout(settings?.catalogGridSize) ? "carousel" : undefined}
+            aria-label={isCarouselLayout(settings?.catalogGridSize) ? "Katalog produk — gulir dengan tombol panah kiri/kanan" : undefined}
+            className={getCatalogContainerClasses(settings?.catalogGridSize)}
+          >
             {products.map((product, index) => (
               <ProductCard
                 key={product.product_id}
@@ -556,7 +570,7 @@ function ProductCard({ product, index = 0, selectedIndex, onSelectVariant, onOpe
   return (
     <Card
       onClick={onOpenModal}
-      className="anim-fade-up cursor-pointer overflow-hidden border-[var(--line)] shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
+      className="anim-fade-up min-h-[44px] cursor-pointer touch-pan-x overflow-hidden border-[var(--line)] shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
       // Muncul berurutan: kartu ke-N tertunda N x 70ms — murni CSS delay.
       style={{ animationDelay: `${Math.min(index, 8) * 70}ms` }}
     >
