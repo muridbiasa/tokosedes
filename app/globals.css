@@ -65,3 +65,18 @@ body {
     animation: none !important;
   }
 }
+
+/* ===== Katalog layout "carousel" (StoreBuilder > Layout katalog) =====
+   Container memakai overflow-x-auto + snap-x (class dari getGridClasses).
+   -webkit-overflow-scrolling: touch → momentum scroll halus di iOS Safari
+   (Chrome Android sudah native inertial scrolling, properti ini diabaikan aman). */
+@layer utilities {
+  .no-scrollbar {
+    -webkit-overflow-scrolling: touch; /* fallback bila arbitrary property tidak tergenersi */
+    scrollbar-width: none;             /* Firefox */
+    -ms-overflow-style: none;          /* IE/Edge lama */
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;                     /* Chrome/Safari — strip scrollbar horizontal */
+  }
+}
